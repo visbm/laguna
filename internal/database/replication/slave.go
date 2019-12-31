@@ -130,6 +130,10 @@ func (s *Slave) getUpdates(ctx context.Context) error {
 }
 
 func (s *Slave) processRows(ctx context.Context, rows []*wal.Row) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
 	if ctx.Err() != nil {
 		s.log.Error("context deadline exceeded", logger.Error(ctx.Err()))
 		return ctx.Err()
@@ -176,11 +180,16 @@ func (s *Slave) execStorage(ctx context.Context, rows []*wal.Row) error {
 	return nil
 }
 
-func (s *Slave) sendReq(ctx context.Context, lsnID uint64) (Response, error) {
-	var resp Response
+func (s *Slave) sendReq(ctx context.Context, lsnID uint64) (*Response, error) {
+	if ctx.Err() != nil {
+		s.log.Error("context deadline exceeded", logger.Error(ctx.Err()))
+		return nil, ctx.Err()
+	}
+
+	var resp *Response
 
 	req := Request{
-		LsnID: lsnID, //todo ??
+		LsnID: lsnID,
 	}
 
 	body, err := req.Marshal()
@@ -189,25 +198,26 @@ func (s *Slave) sendReq(ctx context.Context, lsnID uint64) (Response, error) {
 		return resp, err
 	}
 
-	b, err := s.cl.Send(ctx, body)
+	r, err := s.cl.Send(ctx, body)
 	if err != nil {
-		s.log.Error("send request failed", logger.Error(err), logger.Bytes("body", b))
+		s.log.Error("send request failed", logger.Error(err))
 		return resp, err
 	}
 
-	err = resp.Unmarshal(b)
+	resp, err = ReadMessage(r)
 	if err != nil {
 		s.log.Error("unmarshal response failed", logger.Error(err))
 		return resp, err
 	}
 
 	if resp.Err != nil {
-		s.log.Error("response failed", logger.Error(resp.Err))
+		s.log.Error("response failed with", logger.Integer("lsn ID", int64(lsnID)), logger.Error(resp.Err))
 		return resp, resp.Err
 	}
 
 	return resp, nil
 }
+
 func (s *Slave) walEnable() bool {
 	return s.logWriter != nil
 }

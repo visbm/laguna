@@ -55,33 +55,34 @@ func main() {
 	log.Info("Shutting down...")
 }
 
+// todo make proper init
 func initDB(ctx context.Context, conf *config.Config, log logger.Logger) *database.Database {
+	im := fs.NewIndexManagerMutex()
+	fileSegment, err := fs.NewFileSegment(log, conf.WAL.Directory, conf.WAL.MaxSegmentSize.Int64())
+	if err != nil {
+		log.Fatal("Failed to create file segment", logger.Error(err))
+	}
+	sm := fs.NewSegmentManager(log, im, fileSegment)
 
 	eng := engine.NewEngine(conf.Engine, log)
 	st := storage.New(eng, log)
 
-	newWAL, err := initWal(ctx, conf, log)
+	newWAL, err := initWal(ctx, conf, log, sm)
 
 	db, err := database.NewDatabase(st, conf.Replication.IsMaster, newWAL, log)
 	if err != nil {
 		log.Fatal("Failed to create database", logger.Error(err))
 	}
 
-	initReplication(ctx, st, conf, log)
+	initReplication(ctx, st, conf, log, sm)
 
 	return db
 }
 
-func initWal(ctx context.Context, conf *config.Config, log logger.Logger) (database.WAL, error) {
-	fileSegment, err := fs.NewFileSegment(log, conf.WAL.Directory, conf.WAL.MaxSegmentSize.Int64())
-	if err != nil {
-		log.Fatal("Failed to create file segment", logger.Error(err))
-	}
-
-	sm := fs.NewSegmentManager(log, fileSegment)
+func initWal(ctx context.Context, conf *config.Config, log logger.Logger, sm *fs.SegmentManager) (database.WAL, error) {
 
 	lw := logs.NewLogWriterWithTarget(log, sm)
-	lr := logs.NewLogReader(log)
+	lr := logs.NewLogReader(sm, log)
 
 	newWAL := wal.NewWAL(conf.WAL, log, lw, lr)
 
@@ -90,25 +91,25 @@ func initWal(ctx context.Context, conf *config.Config, log logger.Logger) (datab
 	return newWAL, nil
 }
 
-func initReplication(ctx context.Context, st replication.Storage, conf *config.Config, lg logger.Logger) {
+func initReplication(ctx context.Context, st replication.Storage, conf *config.Config, lg logger.Logger, sm *fs.SegmentManager) {
 	if !conf.Replication.Enable {
 		return
 	}
 
 	if conf.Replication.IsMaster {
-		initMaster(ctx, conf, lg)
+		initMaster(ctx, conf, lg, sm)
 	} else {
-		initSlave(ctx, st, conf, lg)
+		initSlave(ctx, st, conf, lg, sm)
 	}
 
 }
 
-func initMaster(ctx context.Context, conf *config.Config, log logger.Logger) {
+func initMaster(ctx context.Context, conf *config.Config, log logger.Logger, sm *fs.SegmentManager) {
 	log.Info("Initializing master...")
 
 	connWriter := logs.NewLogWriter(log)
-	connReader := logs.NewLogReader(log)
-	master := replication.NewMaster(connReader, connWriter, log)
+	connReader := logs.NewLogReader(sm, log)
+	master := replication.NewMaster(connReader, connWriter, sm, log, conf.WAL.Directory)
 	masterTcpServer := tcp.NewListener(log, master, conf.Replication.Server)
 
 	masterTcpServer.Listen(ctx)
@@ -122,7 +123,7 @@ func initMaster(ctx context.Context, conf *config.Config, log logger.Logger) {
 
 }
 
-func initSlave(ctx context.Context, st replication.Storage, conf *config.Config, log logger.Logger) {
+func initSlave(ctx context.Context, st replication.Storage, conf *config.Config, log logger.Logger, sm *fs.SegmentManager) {
 	log.Info("Initializing slave")
 
 	syncInterval := conf.Replication.SyncInterval
@@ -131,16 +132,11 @@ func initSlave(ctx context.Context, st replication.Storage, conf *config.Config,
 	if err != nil {
 		log.Fatal("Failed to create client", logger.Error(err))
 	}
-	lgReader := logs.NewLogReader(log)
+
+	lgReader := logs.NewLogReader(sm, log)
 
 	var slave *replication.Slave
 	if conf.WAL.Enable {
-		fileSegment, err := fs.NewFileSegment(log, conf.WAL.Directory, conf.WAL.MaxSegmentSize.Int64())
-		if err != nil {
-			log.Fatal("Failed to create file segment", logger.Error(err))
-		}
-		sm := fs.NewSegmentManager(log, fileSegment)
-
 		lgWriter := logs.NewLogWriterWithTarget(log, sm)
 		slave = replication.NewSlaveWithWal(slaveCl, lgReader, lgWriter, st, syncInterval, log)
 

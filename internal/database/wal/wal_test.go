@@ -33,7 +33,7 @@ func (m *mockReader) ReadFromFiles(directory string) ([]*Row, error) {
 	return m.val, m.err
 }
 
-func (m *mockReader) ReadFromFilesStream(directory string) concurrency.FutureRespWithErr[[]*Row] {
+func (m *mockReader) RestoreSystemStream(directory string) concurrency.FutureRespWithErr[[]*Row] {
 	resp := concurrency.NewFutureRespWithErr[[]*Row]()
 	go func() {
 		defer resp.Done()

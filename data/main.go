@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	rows, err := ReadWALFile("/Users/nick/goSelfEducation/laguna/data/wal/1763469986037616.bin")
+	rows, err := ReadWALFile("/Users/nick/goSelfEducation/laguna/data/wal/1763469986037612.bin")
 	if err != nil {
 		fmt.Println("Error reading WAL file:", err)
 		return

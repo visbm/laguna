@@ -2,6 +2,7 @@ package tcp
 
 import (
 	"context"
+	"io"
 	"laguna/common/logger"
 	"laguna/internal/config"
 	"laguna/utils/retry"
@@ -58,44 +59,38 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) Send(ctx context.Context, req []byte) ([]byte, error) {
+func (c *Client) Send(ctx context.Context, req []byte) (io.Reader, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
-	resp, err := retry.WithRetryValue(ctx, int(c.retryCount), 100*time.Millisecond, func() ([]byte, error) {
-		v, err := c.send(req)
+	err := retry.WithRetry(ctx, int(c.retryCount), 200*time.Millisecond, func() error {
+		err := c.send(req)
 		if err != nil {
 			errReconnect := c.setConn()
 			if errReconnect != nil {
-				c.log.Error("error read from connection", logger.Error(errReconnect))
-				return nil, errReconnect
+				return errReconnect
 			}
 		}
 
-		return v, nil
+		return nil
 	})
+
 	if err != nil {
 		return nil, err
 	}
-	return resp, nil
+
+	return c.conn, nil
 }
 
-func (c *Client) send(req []byte) ([]byte, error) {
+func (c *Client) send(req []byte) error {
 	_, err := c.conn.Write(req)
 	if err != nil {
 		c.log.Error("error write to connection", logger.Error(err))
-		return nil, err
+		return err
 	}
 
-	buf := make([]byte, c.respSizeB)
-	n, err := c.conn.Read(buf)
-	if err != nil {
-		c.log.Error("error read from connection", logger.Error(err))
-		return nil, err
-	}
-
-	return buf[:n], nil
+	return nil
 }
 
 func (c *Client) setConn() error {

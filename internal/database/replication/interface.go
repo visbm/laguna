@@ -9,13 +9,13 @@ import (
 )
 
 type TCPClient interface {
-	Send(ctx context.Context, req []byte) ([]byte, error)
+	Send(ctx context.Context, req []byte) (io.Reader, error)
 }
 
 type LogReader interface {
 	Read(r io.Reader) ([]*wal.Row, error)
 	ReadStream(r io.Reader) concurrency.FutureRespWithErr[[]*wal.Row]
-	ReadFrom(directory string, target string) ([]*wal.Row, error)
+	ReadFrom(directory string, target string, firstOffset int64) ([]*wal.Row, error)
 }
 
 type LogWriter interface {

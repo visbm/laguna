@@ -1,14 +1,17 @@
 package fs
 
 import (
+	"io"
 	"laguna/common/logger"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
 
 type FileSegment struct {
-	file    *os.File
+	file *os.File
+
 	path    string
 	size    int64
 	maxSize int64
@@ -108,9 +111,17 @@ func newFile(path string) (*os.File, error) {
 }
 
 func (f *FileSegment) GetName() string {
-	return f.file.Name()
+	return filepath.Base(f.file.Name())
 }
 
 func (f *FileSegment) CurrentOffset() int64 {
 	return f.size
+}
+
+func (f *FileSegment) Read() ([]byte, error) {
+	b, err := io.ReadAll(f.file)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }

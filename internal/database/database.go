@@ -23,6 +23,7 @@ type Storage interface {
 type WAL interface {
 	Write(ctx context.Context, q query.Query) (concurrency.FutureResp[error], error)
 	RestoreStream() (concurrency.FutureRespWithErr[[]query.Query], error)
+	IsEnable() bool
 }
 
 type Database struct {
@@ -54,7 +55,7 @@ func NewDatabase(st Storage, isMaster bool, wal WAL, log logger.Logger) (*Databa
 }
 
 func (e *Database) Execute(ctx context.Context, q query.Query) (string, error) {
-	if e.walEnable() {
+	if e.wal.IsEnable() {
 		err := e.setInWal(ctx, q)
 		if err != nil {
 			return "", err
@@ -126,7 +127,7 @@ func (e *Database) exec(ctx context.Context, q query.Query) (string, error) {
 }
 
 func (e *Database) restoreFromWal() error {
-	if !e.walEnable() {
+	if !e.wal.IsEnable() {
 		return nil
 	}
 	e.log.Info("restoring from WAL")
@@ -146,6 +147,7 @@ func (e *Database) restoreFromWal() error {
 		if !ok {
 			break
 		}
+
 		for _, q := range queries {
 			_, err := e.exec(context.Background(), q)
 			if err != nil {
@@ -159,8 +161,4 @@ func (e *Database) restoreFromWal() error {
 	e.log.Info("restoring from WAL finished")
 
 	return nil
-}
-
-func (e *Database) walEnable() bool {
-	return e.wal != nil
 }

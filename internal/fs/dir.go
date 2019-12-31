@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -34,7 +35,21 @@ func OpenFile(path string) (*os.File, error) {
 	return file, nil
 }
 
-func ReadDirsForm(path string, fileForm string) ([]string, error) {
+func ReadFile(path string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func ReadDirsFrom(path string, fileFrom string) ([]string, error) {
 	dirs, err := ReadDir(path)
 	if err != nil {
 		return nil, err
@@ -43,22 +58,27 @@ func ReadDirsForm(path string, fileForm string) ([]string, error) {
 		return nil, nil
 	}
 
-	idx := upperBound(dirs, fileForm)
+	idx := binarySearch(dirs, fileFrom)
+	if idx < 0 {
+		return nil, nil
+	}
 
 	return dirs[idx:], nil
 }
 
-func upperBound(array []string, target string) int {
+func binarySearch(array []string, target string) int {
 	low, high := 0, len(array)-1
 
 	for low <= high {
 		mid := (low + high) / 2
-		if array[mid] > target {
-			high = mid - 1
-		} else {
+		if array[mid] == target {
+			return mid
+		} else if array[mid] < target {
 			low = mid + 1
+		} else {
+			high = mid - 1
 		}
 	}
 
-	return low
+	return -1
 }

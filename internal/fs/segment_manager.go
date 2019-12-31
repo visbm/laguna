@@ -3,25 +3,28 @@ package fs
 import (
 	"laguna/common/logger"
 	"laguna/internal/database/wal"
+	"sync"
 )
 
 type IndexManager interface {
 	AddBatch(entries map[uint64]IndexEntry)
+	GetIndex(lsn uint64) (IndexEntry, error)
 }
 
 type SegmentManager struct {
+	m      *sync.RWMutex
 	curSeg *FileSegment
 
-	ind IndexManager
-
+	im  IndexManager
 	log logger.Logger
 }
 
-func NewSegmentManager(log logger.Logger, segment *FileSegment) *SegmentManager {
+func NewSegmentManager(log logger.Logger, im IndexManager, segment *FileSegment) *SegmentManager {
 	return &SegmentManager{
+		m:      &sync.RWMutex{},
 		curSeg: segment,
 		log:    log,
-		ind:    NewIndexManagerMutex(),
+		im:     im,
 	}
 }
 
@@ -32,6 +35,9 @@ func (s *SegmentManager) Write(rows []*wal.Row) error {
 	}
 
 	return s.processBatches(batch, rows)
+}
+func (s *SegmentManager) GetIndex(lsn uint64) (IndexEntry, error) {
+	return s.im.GetIndex(lsn)
 }
 
 func (s *SegmentManager) processBatches(batch [][]byte, rows []*wal.Row) error {
@@ -63,11 +69,13 @@ func (s *SegmentManager) processBatches(batch [][]byte, rows []*wal.Row) error {
 				return err
 			}
 
+			s.m.Lock()
 			err = s.curSeg.Rotate()
 			if err != nil {
 				s.log.Error("error writing to file", logger.Error(err))
 				return err
 			}
+			s.m.Unlock()
 
 			start = i
 			currentSize = 0
@@ -86,6 +94,7 @@ func (s *SegmentManager) processBatches(batch [][]byte, rows []*wal.Row) error {
 }
 
 func (s *SegmentManager) writeBatch(batch [][]byte, rows []*wal.Row, bufSize int) error {
+
 	name := s.curSeg.GetName()
 	offset := s.curSeg.CurrentOffset()
 
@@ -95,8 +104,6 @@ func (s *SegmentManager) writeBatch(batch [][]byte, rows []*wal.Row, bufSize int
 		offset += int64(len(batch[i]))
 	}
 
-	s.ind.AddBatch(entries)
-
 	data := s.flatten(batch, bufSize)
 	err := s.writeInSeg(data)
 	if err != nil {
@@ -104,7 +111,12 @@ func (s *SegmentManager) writeBatch(batch [][]byte, rows []*wal.Row, bufSize int
 		return err
 	}
 
+	go s.AddBatchIndex(entries)
+
 	return nil
+}
+func (s *SegmentManager) AddBatchIndex(entries map[uint64]IndexEntry) {
+	s.im.AddBatch(entries)
 }
 
 func (s *SegmentManager) flatten(batch [][]byte, bufSize int) []byte {
@@ -121,11 +133,13 @@ func (s *SegmentManager) writeInSeg(batch []byte) error {
 		return nil
 	}
 
+	s.m.Lock()
 	err := s.curSeg.Write(batch)
 	if err != nil {
 		s.log.Error("error writing to file", logger.Error(err))
 		return err
 	}
+	s.m.Unlock()
 
 	return nil
 }
@@ -143,4 +157,34 @@ func (s *SegmentManager) createButch(rows []*wal.Row) ([][]byte, error) {
 		batch[i] = rB
 	}
 	return batch, nil
+}
+
+func (s *SegmentManager) ReadrSegment(name string) ([]byte, error) {
+	if s.curSeg.GetName() == name {
+		return s.readCurrSegment()
+	} else {
+		return s.readFile(name)
+	}
+}
+
+func (s *SegmentManager) readCurrSegment() ([]byte, error) {
+	s.m.RLock()
+	defer s.m.RUnlock()
+	data, err := s.curSeg.Read()
+	if err != nil {
+		s.log.Error("error reading from file", logger.Error(err))
+		return nil, err
+	}
+	return data, nil
+}
+
+func (s *SegmentManager) readFile(name string) ([]byte, error) {
+	data, err := ReadFile(name)
+	if err != nil {
+		s.log.Error("error opening file", logger.Error(err))
+		return nil, err
+	}
+
+	return data, nil
+
 }

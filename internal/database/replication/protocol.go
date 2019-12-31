@@ -1,6 +1,7 @@
 package replication
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -27,7 +28,7 @@ func (ct *ConnTarget) Write(rows []*wal.Row) error {
 	var resp Response
 	resp.Data = data
 
-	respBytes, err := resp.Marshal()
+	respBytes, err := resp.WriteMessage()
 	if err != nil {
 		return err
 	}
@@ -73,63 +74,91 @@ func (r *Request) Unmarshal(data []byte) error {
 	return nil
 }
 
+const (
+	errFlag = 1
+	okFlag  = 0
+)
+
 type Response struct {
 	Data []byte
 	Err  error
 }
 
-func (r *Response) Marshal() ([]byte, error) {
+func (r *Response) WriteMessage() ([]byte, error) {
 	var buf bytes.Buffer
+	var err error
 
 	if r.Err != nil {
-		buf.WriteByte(1)
+		buf.WriteByte(errFlag)
+		err = r.writerError(&buf)
 	} else {
-		buf.WriteByte(0)
+		buf.WriteByte(okFlag)
+		err = r.writerData(&buf)
 	}
 
-	if err := binary.Write(&buf, binary.BigEndian, int32(len(r.Data))); err != nil {
+	if err != nil {
 		return nil, err
-	}
-	if _, err := buf.Write(r.Data); err != nil {
-		return nil, err
-	}
-
-	if r.Err != nil {
-		errStr := r.Err.Error()
-		if _, err := buf.Write([]byte(errStr)); err != nil {
-			return nil, err
-		}
 	}
 
 	return buf.Bytes(), nil
 }
 
-func (r *Response) Unmarshal(b []byte) error {
-	buf := bytes.NewReader(b)
+func (r *Response) writerData(buf *bytes.Buffer) error {
+	if err := binary.Write(buf, binary.BigEndian, int32(len(r.Data))); err != nil {
+		return err
+	}
+
+	if _, err := buf.Write(r.Data); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Response) writerError(buf *bytes.Buffer) error {
+	errStr := r.Err.Error()
+
+	if err := binary.Write(buf, binary.BigEndian, int32(len(errStr))); err != nil {
+		return err
+	}
+
+	if _, err := buf.Write([]byte(errStr)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ReadMessage(r io.Reader) (*Response, error) {
+	resp := &Response{}
+
+	buf := bufio.NewReader(r)
 
 	flag, err := buf.ReadByte()
 	if err != nil {
-		return err
+		return resp, err
 	}
 
 	var dataLen int32
 	if err := binary.Read(buf, binary.BigEndian, &dataLen); err != nil {
-		return err
+		return resp, err
 	}
+
 	if dataLen < 0 {
-		return errors.New("invalid data length")
+		return resp, errors.New("invalid data length")
 	}
-	r.Data = make([]byte, dataLen)
-	if _, err := io.ReadFull(buf, r.Data); err != nil {
-		return err
-	}
+
+	data := make([]byte, dataLen)
 
 	if flag == 1 {
-		errBytes, _ := io.ReadAll(buf)
-		r.Err = errors.New(string(errBytes))
+		if _, err := io.ReadFull(buf, data); err != nil {
+			return resp, err
+		}
+		resp.Err = errors.New(string(data))
 	} else {
-		r.Err = nil
+		if _, err := io.ReadFull(buf, data); err != nil {
+			return resp, err
+		}
+		resp.Data = data
 	}
 
-	return nil
+	return resp, nil
 }

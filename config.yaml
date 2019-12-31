@@ -19,7 +19,7 @@ wal:
   flush_interval: "10ms"
   max_segment_size: "1MB"
   directory: "./data/wal"
-replication:
+replication: #cannot be replicate if wal is OFF
   enable: true
   is_master: true
   sync_interval: "1s"

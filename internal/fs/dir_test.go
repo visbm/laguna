@@ -197,20 +197,20 @@ func TestReadDirsForm(t *testing.T) {
 				file.Close()
 			}
 
-			result, err := ReadDirsForm(dir, tt.target)
+			result, err := ReadDirsFrom(dir, tt.target)
 
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ReadDirsForm() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ReadDirsFrom() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if !tt.wantErr {
 				if len(result) != tt.wantLen {
-					t.Errorf("ReadDirsForm() len = %d, want %d", len(result), tt.wantLen)
+					t.Errorf("ReadDirsFrom() len = %d, want %d", len(result), tt.wantLen)
 				}
 
 				if tt.wantFirst != "" && len(result) > 0 && result[0] != tt.wantFirst {
-					t.Errorf("ReadDirsForm() first = %q, want %q", result[0], tt.wantFirst)
+					t.Errorf("ReadDirsFrom() first = %q, want %q", result[0], tt.wantFirst)
 				}
 			}
 		})

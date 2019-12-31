@@ -4,7 +4,6 @@ import (
 	"errors"
 	"laguna/common/logger"
 	"laguna/internal/database/wal"
-	"sync/atomic"
 )
 
 type Target interface {
@@ -12,10 +11,8 @@ type Target interface {
 }
 
 type LogWriter struct {
-	log logger.Logger
-	//todo need?
-	lastLsnWritten atomic.Uint64
-	target         Target
+	log    logger.Logger
+	target Target
 }
 
 func NewLogWriterWithTarget(log logger.Logger, t Target) *LogWriter {
@@ -52,8 +49,6 @@ func (lw *LogWriter) write(rows []*wal.Row, t Target) error {
 		lw.log.Error("failed to write", logger.Error(err))
 		return err
 	}
-
-	lw.lastLsnWritten.Store(rows[len(rows)-1].GetLsnID())
 
 	return nil
 }

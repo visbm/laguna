@@ -1,5 +1,6 @@
 package replication
 
+/*
 import (
 	"bytes"
 	"context"
@@ -54,7 +55,7 @@ func (m *mockSlaveLogReader) ReadStream(r io.Reader) concurrency.FutureRespWithE
 	return m.readStreamResp
 }
 
-func (m *mockSlaveLogReader) ReadFrom(directory string, target string) ([]*wal.Row, error) {
+func (m *mockSlaveLogReader) ReadFromFileAndNext(directory string, target string) ([]*wal.Row, error) {
 	return nil, nil
 }
 
@@ -526,4 +527,4 @@ func createMockStream(rows []*wal.Row) concurrency.FutureRespWithErr[[]*wal.Row]
 		resp.Put(rows, nil)
 	}()
 	return resp
-}
+}*/

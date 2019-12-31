@@ -26,7 +26,7 @@ type Writer interface {
 
 type Reader interface {
 	ReadFromFiles(directory string) ([]*Row, error)
-	ReadFromFilesStream(directory string) concurrency.FutureRespWithErr[[]*Row]
+	RestoreSystemStream(directory string) concurrency.FutureRespWithErr[[]*Row]
 }
 
 type WAL struct {
@@ -93,6 +93,9 @@ func NewWAL(c config.WAL, log logger.Logger, w Writer, r Reader) *WAL {
 	return wal
 }
 
+func (w *WAL) IsEnable() bool {
+	return w.enable
+}
 func (w *WAL) Start(ctx context.Context) {
 	if !w.enable {
 		return
@@ -123,32 +126,10 @@ func (w *WAL) Write(ctx context.Context, q query.Query) (concurrency.FutureResp[
 	return fr, nil
 }
 
-func (w *WAL) Restore() ([]query.Query, error) {
-	val, err := w.reader.ReadFromFiles(w.directory)
-	if err != nil {
-		w.log.Error("failed to read WAL files", logger.Error(err))
-		return nil, err
-	}
-
-	resp := make([]query.Query, 0, len(val))
-
-	var lastLSNID uint64
-	for _, rec := range val {
-		if rec.GetLsnID() > lastLSNID {
-			lastLSNID = rec.GetLsnID()
-		}
-		resp = append(resp, query.NewQuery(rec.GetMethodID(), rec.GetArgs()))
-	}
-
-	w.lsnGen = id_generator.NewIDGeneratorWithStart(lastLSNID)
-
-	return resp, nil
-}
-
 func (w *WAL) RestoreStream() (concurrency.FutureRespWithErr[[]query.Query], error) {
 	resp := concurrency.NewFutureRespWithErr[[]query.Query]()
 
-	rowsStream := w.reader.ReadFromFilesStream(w.directory)
+	rowsStream := w.reader.RestoreSystemStream(w.directory)
 
 	go func() {
 		defer resp.Done()

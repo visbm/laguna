@@ -396,7 +396,7 @@ func TestNewSegmentManager(t *testing.T) {
 		t.Error("NewSegmentManager() curSeg not set correctly")
 	}
 
-	if sm.ind == nil {
+	if sm.im == nil {
 		t.Error("NewSegmentManager() ind is nil")
 	}
 }

@@ -1,11 +1,21 @@
 package fs
 
 import (
-	"fmt"
+	"errors"
 	"sync"
 	"sync/atomic"
 )
 
+var ErrNotFound = errors.New("index not found")
+
+// IndexEntry todo refill while restoring from wal .
+// ---------- SegmentIndex ----------
+//
+//	type Segment struct {
+//		Start uint64
+//		End   uint64
+//		File  string
+//	}
 type IndexEntry struct {
 	FileName string
 	Offset   int64
@@ -29,12 +39,12 @@ func (im *IndexManagerMutex) Add(lsn uint64, fileName string, offset int64) {
 	im.mu.Unlock()
 }
 
-func (im *IndexManagerMutex) Get(lsn uint64) (IndexEntry, error) {
+func (im *IndexManagerMutex) GetIndex(lsn uint64) (IndexEntry, error) {
 	im.mu.RLock()
 	defer im.mu.RUnlock()
 	entry, ok := im.index[lsn]
 	if !ok {
-		return IndexEntry{}, fmt.Errorf("lsn %d not found", lsn)
+		return IndexEntry{}, ErrNotFound
 	}
 	return entry, nil
 }
@@ -86,7 +96,7 @@ func (im *IndexManagerCOW) Get(lsn uint64) (IndexEntry, error) {
 	m := im.current.Load().(map[uint64]IndexEntry)
 	entry, ok := m[lsn]
 	if !ok {
-		return IndexEntry{}, fmt.Errorf("lsn %d not found", lsn)
+		return IndexEntry{}, ErrNotFound
 	}
 	return entry, nil
 }

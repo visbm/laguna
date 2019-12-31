@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
 	"laguna/common/logger"
 	"laguna/internal/config"
 	"laguna/internal/transport/tcp"
@@ -55,7 +56,7 @@ func main() {
 	for {
 		_ = write(w, []byte("> "))
 
-		line, err := r.ReadBytes('\n')
+		line, err := readLine(r)
 		if err != nil {
 			writeError(w, err)
 			continue
@@ -71,7 +72,13 @@ func main() {
 			continue
 		}
 
-		err = write(w, resp)
+		l, err := readLine(resp)
+		if err != nil {
+			writeError(w, err)
+			continue
+		}
+
+		err = write(w, l)
 		if err != nil {
 			writeError(w, err)
 			continue
@@ -79,6 +86,17 @@ func main() {
 	}
 
 	log.Print("Exiting")
+}
+
+func readLine(r io.Reader) ([]byte, error) {
+	br := bufio.NewReader(r)
+
+	line, err := br.ReadBytes('\n')
+	if err != nil {
+		return nil, err
+	}
+
+	return line, nil
 }
 
 func write(w *bufio.Writer, p []byte) error {
