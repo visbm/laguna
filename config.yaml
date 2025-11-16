@@ -1,0 +1,18 @@
+engine:
+  type: inmemory
+logger:
+  level: debug
+  out: stdout
+  disable_stacktrace: true
+transport: #tcp cli
+  type: tcp
+  address: localhost:8080 #nc localhost 8080
+  max_conn: 100
+  max_message_size: 4KB
+  idle_timeout: 5m
+  sem_wait_timeout: 5s
+wal:
+  flush_batch_size: 100
+  flush_interval: "10ms"
+  max_segment_size: "10MB"
+  directory: "/data/laguna/wal"
