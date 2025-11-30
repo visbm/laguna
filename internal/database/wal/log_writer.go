@@ -14,11 +14,6 @@ type Segment interface {
 	Close() error
 }
 
-const (
-	sep    = '\n'
-	sepLen = 1
-)
-
 type LogWriter struct {
 	log logger.Logger
 	buf *bytes.Buffer
@@ -31,7 +26,6 @@ type LogWriter struct {
 
 func NewLogWriter(conf config.WAL, log logger.Logger, segment Segment) *LogWriter {
 	return &LogWriter{
-		buf:            bytes.NewBuffer(make([]byte, 0)),
 		log:            log,
 		directory:      conf.Directory,
 		maxSegmentSize: conf.MaxSegmentSize,
@@ -40,23 +34,18 @@ func NewLogWriter(conf config.WAL, log logger.Logger, segment Segment) *LogWrite
 	}
 }
 
-func (lw *LogWriter) Write(batch [][]byte) error {
+func (lw *LogWriter) Write(rows []*Row) error {
+	batch := make([][]byte, len(rows))
+	for _, row := range rows {
+		rB, err := row.Marshal()
+		if err != nil {
+			return err
+		}
+		batch = append(batch, rB)
+	}
+
 	err := lw.processBatches(batch)
 	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (lw *LogWriter) write(batch []byte) error {
-	if len(batch) == 0 {
-		return nil
-	}
-
-	err := lw.curSeg.Write(batch)
-	if err != nil {
-		lw.log.Error("error writing to file", logger.Error(err))
 		return err
 	}
 
@@ -83,7 +72,7 @@ func (lw *LogWriter) processBatches(batch [][]byte) error {
 	start := 0
 
 	for i, b := range batch {
-		size := len(b) + sepLen
+		size := len(b)
 
 		if !lw.curSeg.Fits(int64(currentSize + size)) {
 			err := lw.writeBatch(batch[start:i], currentSize)
@@ -114,9 +103,9 @@ func (lw *LogWriter) processBatches(batch [][]byte) error {
 	return nil
 }
 
-func (lw *LogWriter) writeBatch(bath [][]byte, bufSize int) error {
-	data := lw.getData(bath, bufSize)
-	err := lw.write(data)
+func (lw *LogWriter) writeBatch(batch [][]byte, bufSize int) error {
+	data := lw.getData(batch, bufSize)
+	err := lw.writeInSeg(data)
 	if err != nil {
 		lw.log.Error("error writing to file", logger.Error(err))
 		return err
@@ -125,14 +114,25 @@ func (lw *LogWriter) writeBatch(bath [][]byte, bufSize int) error {
 	return nil
 }
 
-func (lw *LogWriter) getData(bath [][]byte, bufSize int) []byte {
-	lw.buf.Grow(bufSize)
-	for _, b := range bath {
-		lw.buf.Write(b)
-		lw.buf.WriteByte(sep)
+func (lw *LogWriter) getData(batch [][]byte, bufSize int) []byte {
+	buf := make([]byte, 0, bufSize)
+	for _, b := range batch {
+		buf = append(buf, b...)
 	}
 
-	data := lw.buf.Bytes()
-	lw.buf.Reset()
-	return data
+	return buf
+}
+
+func (lw *LogWriter) writeInSeg(batch []byte) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	err := lw.curSeg.Write(batch)
+	if err != nil {
+		lw.log.Error("error writing to file", logger.Error(err))
+		return err
+	}
+
+	return nil
 }

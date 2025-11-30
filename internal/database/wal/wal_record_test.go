@@ -5,16 +5,18 @@ import (
 	"math"
 	"reflect"
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 func TestRowMarshalUnmarshal_TableDriven(t *testing.T) {
 	tests := []struct {
 		name string
-		row  *row
+		row  *Row
 	}{
 		{
 			name: "simple GET",
-			row: &row{
+			row: &Row{
 				lsnID:    1,
 				methodID: query.GetMethodID,
 				args:     []string{"user"},
@@ -22,7 +24,7 @@ func TestRowMarshalUnmarshal_TableDriven(t *testing.T) {
 		},
 		{
 			name: "simple GET with max lsn",
-			row: &row{
+			row: &Row{
 				lsnID:    math.MaxUint64,
 				methodID: query.GetMethodID,
 				args:     []string{"user"},
@@ -30,7 +32,7 @@ func TestRowMarshalUnmarshal_TableDriven(t *testing.T) {
 		},
 		{
 			name: "SET with multi arg",
-			row: &row{
+			row: &Row{
 				lsnID:    1,
 				methodID: query.GetMethodID,
 				args:     []string{"user", "Jone", "Doe"},
@@ -38,7 +40,7 @@ func TestRowMarshalUnmarshal_TableDriven(t *testing.T) {
 		},
 		{
 			name: "SET with single arg",
-			row: &row{
+			row: &Row{
 				lsnID:    42,
 				methodID: query.SetMethodID,
 				args:     []string{"user", "1"},
@@ -46,7 +48,7 @@ func TestRowMarshalUnmarshal_TableDriven(t *testing.T) {
 		},
 		{
 			name: "DEL with multiple args",
-			row: &row{
+			row: &Row{
 				lsnID:    99,
 				methodID: query.DelMethodID,
 				args:     []string{"motosycle", "harrley", "davidson"},
@@ -54,20 +56,24 @@ func TestRowMarshalUnmarshal_TableDriven(t *testing.T) {
 		},
 		{
 			name: "empty args",
-			row: &row{
+			row: &Row{
 				lsnID:    7,
 				methodID: query.GetMethodID,
-				args:     []string{""},
+				args:     []string{},
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data := tt.row.Marshal()
+			data, err := tt.row.Marshal()
+			if err != nil {
+				t.Errorf("marshaling error %v", zap.Error(err))
+				return
+			}
 
-			got := &row{}
-			if err := got.Unmarshal(data); err != nil {
+			got := &Row{}
+			if _, err := got.Unmarshal(data); err != nil {
 				t.Fatalf("Unmarshal failed: %v", err)
 			}
 

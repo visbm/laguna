@@ -27,6 +27,11 @@ func New(en Engine, log logger.Logger) *Storage {
 }
 
 func (s *Storage) Get(ctx context.Context, key string) (string, error) {
+	if ctx.Err() != nil {
+		s.log.Error("context canceled")
+		return "", ctx.Err()
+	}
+
 	v, err := s.en.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, inmemory.ErrNotFound) {
@@ -38,8 +43,18 @@ func (s *Storage) Get(ctx context.Context, key string) (string, error) {
 	return v, err
 }
 func (s *Storage) Set(ctx context.Context, key, value string) error {
+	if ctx.Err() != nil {
+		s.log.Error("context canceled")
+		return ctx.Err()
+	}
+
 	return s.en.Set(ctx, key, value)
 }
 func (s *Storage) Delete(ctx context.Context, key string) error {
+	if ctx.Err() != nil {
+		s.log.Error("context canceled")
+		return ctx.Err()
+	}
+
 	return s.en.Del(ctx, key)
 }

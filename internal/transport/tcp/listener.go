@@ -76,9 +76,11 @@ func (l *tcpListener) Listen(ctx context.Context) {
 	l.ls = listener
 
 	for {
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			l.log.Info("context canceled")
 			return
+		default:
 		}
 
 		conn, err := l.ls.Accept()

@@ -30,12 +30,6 @@ var MethodNames = map[Method]MethodID{
 	DEL: DelMethodID,
 }
 
-var MethodIDs = map[MethodID]Method{
-	SetMethodID: SET,
-	GetMethodID: GET,
-	DelMethodID: DEL,
-}
-
 var (
 	ErrUnknowMethod = errors.New("unknow method")
 	ErrWrongQuery   = errors.New("wrong query")
@@ -68,9 +62,17 @@ type Query struct {
 	args     []string
 }
 
-func (q Query) GetArs() []string {
+func NewQuery(methodID MethodID, args []string) Query {
+	return Query{
+		methodID: methodID,
+		args:     args,
+	}
+}
+
+func (q Query) GetArgs() []string {
 	return q.args
 }
+
 func (q Query) MethodID() MethodID {
 	return q.methodID
 }

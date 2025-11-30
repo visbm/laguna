@@ -5,46 +5,14 @@ import (
 	"laguna/internal/config"
 	"laguna/internal/fs"
 	"laguna/internal/mocks"
+	"laguna/internal/query"
+	"laguna/utils"
 	"os"
 	"path/filepath"
 	"testing"
-)
 
-func readAllLines(t *testing.T, dir string) [][]byte {
-	t.Helper()
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read dir failed: %v", err)
-	}
-	var lines [][]byte
-	for _, f := range files {
-		if f.IsDir() {
-			continue
-		}
-		path := filepath.Join(dir, f.Name())
-		content, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read file %s failed: %v", path, err)
-		}
-		parts := bytes.Split(content, []byte("\n"))
-		// drop trailing empty element if file ends with newline
-		end := len(parts)
-		if end > 0 && len(parts[end-1]) == 0 {
-			end--
-		}
-		for _, p := range parts[:end] {
-			// skip empty lines just in case
-			if len(p) == 0 {
-				continue
-			}
-			// copy to avoid holding reference
-			cpy := make([]byte, len(p))
-			copy(cpy, p)
-			lines = append(lines, cpy)
-		}
-	}
-	return lines
-}
+	"github.com/stretchr/testify/require"
+)
 
 func TestLogWriter_Write_basicBatches(t *testing.T) {
 	dir := t.TempDir()
@@ -61,127 +29,156 @@ func TestLogWriter_Write_basicBatches(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	lw := NewLogWriter(conf, logger, seg)
 
-	batch := [][]byte{
-		[]byte("hello world"),
-		[]byte("golang"),
-		[]byte("laguna"),
-		[]byte("infile writer"),
+	batch := []*Row{
+		{
+			lsnID:    1,
+			methodID: query.GetMethodID,
+			args:     []string{"user"},
+		},
+		{
+			lsnID:    2,
+			methodID: query.SetMethodID,
+			args:     []string{"user", "1"},
+		},
+		{
+			lsnID:    3,
+			methodID: query.DelMethodID,
+			args:     []string{"user"},
+		},
+	}
+
+	var batchBytes []byte
+	for _, b := range batch {
+		rB, _ := b.Marshal()
+		batchBytes = append(batchBytes, rB...)
 	}
 
 	if err := lw.Write(batch); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
-	lines := readAllLines(t, dir)
-	if len(lines) != len(batch) {
-		t.Fatalf("expected %d lines, got %d", len(batch), len(lines))
-	}
-
-	// check all messages
-	for _, want := range batch {
-		found := false
-		for _, got := range lines {
-			if bytes.Equal(got, want) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected line %q not found in WAL files", string(want))
-		}
+	got := readAllLines(t, dir)
+	if len(got) != len(batchBytes) {
+		t.Errorf("expected %d lines, got %d", len(batchBytes), len(got))
+		return
 	}
 }
 
 func TestLogWriter_Write_manyBatches_segmentRotation(t *testing.T) {
 	dir := t.TempDir()
+	const (
+		runs           = 10
+		maxSegmentSize = 64
+	)
+
 	conf := config.WAL{
 		Directory:      dir,
-		MaxSegmentSize: 64,
+		MaxSegmentSize: maxSegmentSize,
 	}
 
 	seg, err := fs.NewFileSegment(conf.Directory, conf.MaxSegmentSize.Int64())
-	if err != nil {
-		t.Fatalf("NewFileSegment failed: %v", err)
-	}
+	require.NoError(t, err, "NewFileSegment failed")
 
 	logger := &mocks.MockLogger{}
 	lw := NewLogWriter(conf, logger, seg)
 
-	perBatch := [][]byte{
-		[]byte("Hello World"),
-		[]byte("Hello World"),
-		[]byte("Hello World"),
+	rows := []*Row{
+		{lsnID: 1, methodID: query.SetMethodID, args: []string{"a", "1"}},
+		{lsnID: 2, methodID: query.SetMethodID, args: []string{"b", "2"}},
+		{lsnID: 3, methodID: query.SetMethodID, args: []string{"c", "3"}},
 	}
-	const runs = 10
 
-	totalExpected := 0
+	var wantPerBatch []byte
+	for _, r := range rows {
+		b, _ := r.Marshal()
+		wantPerBatch = append(wantPerBatch, b...)
+	}
+
+	var want []byte
 	for i := 0; i < runs; i++ {
-		if err := lw.Write(perBatch); err != nil {
-			t.Fatalf("Write failed on run %d: %v", i, err)
-		}
-		totalExpected += len(perBatch)
+		require.NoError(t, lw.Write(rows), "Write failed on run %d", i)
+		want = append(want, wantPerBatch...)
 	}
 
-	lines := readAllLines(t, dir)
-	if len(lines) != totalExpected {
-		t.Fatalf("expected total %d lines, got %d", totalExpected, len(lines))
-	}
+	got := readAllLines(t, dir)
+	require.Equal(t, len(want), len(got), "unexpected total bytes written")
 
 	files, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read dir failed: %v", err)
-	}
-	if len(files) <= 1 {
-		t.Fatalf("expected more than 1 WAL file after multiple writes, got %d", len(files))
-	}
+	require.NoError(t, err, "read dir failed")
+
+	expectedFiles := 10
+	require.Equal(t, expectedFiles, len(files), "unexpected number of WAL files")
+
+	require.True(t, bytes.Equal(got, want), "written bytes do not match expected")
 }
 
 func TestLogWriter_Write_oversizedEntry(t *testing.T) {
 	dir := t.TempDir()
-	const runs = 5
-	const shortLen = 6
+	const (
+		runs     = 5
+		shortLen = 6
+	)
+	maxSegmentSize := runs*shortLen + runs
 
 	conf := config.WAL{
 		Directory:      dir,
-		MaxSegmentSize: runs*shortLen + runs*sepLen,
+		MaxSegmentSize: utils.ByteSize(maxSegmentSize),
 	}
 
 	seg, err := fs.NewFileSegment(conf.Directory, conf.MaxSegmentSize.Int64())
-	if err != nil {
-		t.Fatalf("NewFileSegment failed: %v", err)
-	}
+	require.NoError(t, err, "NewFileSegment failed")
+
 	logger := &mocks.MockLogger{}
 	lw := NewLogWriter(conf, logger, seg)
 
-	data := [][]byte{
-		[]byte("Hello1"),
-		[]byte("Hello2"),
-		[]byte("Hello3"),
-		[]byte("Hello4"),
-		[]byte("this entry is definitely longer than the configured max segment size and should be handled specially"),
+	rows := []*Row{
+		{lsnID: 1, methodID: query.SetMethodID, args: []string{"k1", "Hello1"}},
+		{lsnID: 2, methodID: query.SetMethodID, args: []string{"k2", "Hello2"}},
+		{lsnID: 3, methodID: query.SetMethodID, args: []string{"k3", "Hello3"}},
+		{lsnID: 4, methodID: query.SetMethodID, args: []string{"k4", "Hello4"}},
+		{lsnID: 5, methodID: query.SetMethodID, args: []string{"k5", "this entry is definitely longer than the configured max segment size and should be handled specially"}},
 	}
 
-	totalExpected := 0
+	var wantPerBatch []byte
+	for _, r := range rows {
+		b, _ := r.Marshal()
+		wantPerBatch = append(wantPerBatch, b...)
+	}
+
+	var want []byte
 	for i := 0; i < runs; i++ {
-		if err := lw.Write(data); err != nil {
-			t.Fatalf("Write failed on run %d: %v", i, err)
-		}
-		totalExpected += len(data)
+		require.NoError(t, lw.Write(rows), "Write failed on run %d", i)
+		want = append(want, wantPerBatch...)
 	}
 
-	lines := readAllLines(t, dir)
-	if len(lines) != totalExpected {
-		t.Fatalf("expected total %d lines, got %d", totalExpected, len(lines))
-	}
+	got := readAllLines(t, dir)
+	require.True(t, bytes.Equal(got, want), "written bytes do not match expected")
 
-	longFound := false
-	for _, l := range lines {
-		if bytes.HasPrefix(l, []byte("this entry is definitely")) {
-			longFound = true
-			break
+	files, err := os.ReadDir(dir)
+	require.NoError(t, err, "read dir failed")
+
+	expectedFiles := runs * len(rows)
+	require.Equal(t, expectedFiles, len(files), "unexpected number of WAL files")
+}
+
+func readAllLines(t *testing.T, dir string) []byte {
+	t.Helper()
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir failed: %v", err)
+	}
+	var lines []byte
+	for _, f := range files {
+		if f.IsDir() {
+			continue
 		}
+		path := filepath.Join(dir, f.Name())
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read file %s failed: %v", path, err)
+		}
+
+		lines = append(lines, content...)
 	}
-	if !longFound {
-		t.Errorf("oversized entry not found in WAL files")
-	}
+	return lines
 }

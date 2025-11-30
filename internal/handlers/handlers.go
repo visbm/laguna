@@ -13,7 +13,7 @@ type Handler interface {
 	Handle(ctx context.Context, r io.Reader, w io.Writer) error
 }
 
-// mockgen -source=internal/handlers/handlers.go -destination=internal/mocks/handlers_mocks.go -package=mocks
+// Database mockgen -source=internal/handlers/handlers.go -destination=internal/mocks/handlers_mocks.go -package=mocks
 type Database interface {
 	Execute(ctx context.Context, q query.Query) (string, error)
 }

@@ -36,6 +36,7 @@ type Transport struct {
 }
 
 type WAL struct {
+	Disable        bool           `yaml:"disable"`
 	FlushInterval  time.Duration  `yaml:"flush_interval"`
 	FlushBatchSize int64          `yaml:"flush_batch_size"`
 	MaxSegmentSize utils.ByteSize `yaml:"max_segment_size"`

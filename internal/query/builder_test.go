@@ -18,21 +18,21 @@ func TestBuilder_Parse(t *testing.T) {
 	}{
 		{
 			name:       "valid SET",
-			input:      "SET key value",
+			input:      "SET key value\n",
 			wantErr:    false,
 			wantMethod: SetMethodID,
 			wantArgs:   []string{"key", "value"},
 		},
 		{
 			name:       "valid SET multiple args",
-			input:      "SET key hello world",
+			input:      "SET key hello world\n",
 			wantErr:    false,
 			wantMethod: SetMethodID,
 			wantArgs:   []string{"key", "hello world"},
 		},
 		{
 			name:       "valid GET",
-			input:      "GET mykey",
+			input:      "GET mykey\n",
 			wantErr:    false,
 			wantMethod: GetMethodID,
 			wantArgs:   []string{"mykey"},
@@ -51,19 +51,19 @@ func TestBuilder_Parse(t *testing.T) {
 			errValue: ErrUnknowMethod,
 		},
 		{
-			name:     "wrong args length for SET",
+			name:     "wrong args length for SET\n",
 			input:    "SET key",
 			wantErr:  true,
 			errValue: ErrWrongArgsLen,
 		},
 		{
-			name:     "wrong args length for GET",
+			name:     "wrong args length for GET\n",
 			input:    "GET",
 			wantErr:  true,
 			errValue: ErrWrongQuery,
 		},
 		{
-			name:     "wrong args length for DEL",
+			name:     "wrong args length for DEL\n",
 			input:    "DEL",
 			wantErr:  true,
 			errValue: ErrWrongQuery,
@@ -99,12 +99,12 @@ func TestBuilder_Parse(t *testing.T) {
 				if got.MethodID() != tt.wantMethod {
 					t.Errorf("methodID: want %v, got %v", tt.wantMethod, got.MethodID())
 				}
-				if len(got.GetArs()) != len(tt.wantArgs) {
-					t.Fatalf("args length: want %v, got %v", len(tt.wantArgs), len(got.GetArs()))
+				if len(got.GetArgs()) != len(tt.wantArgs) {
+					t.Fatalf("args length: want %v, got %v", len(tt.wantArgs), len(got.GetArgs()))
 				}
-				for i := range got.GetArs() {
-					if got.GetArs()[i] != tt.wantArgs[i] {
-						t.Errorf("arg[%d]: want %v, got %v", i, tt.wantArgs[i], got.GetArs()[i])
+				for i := range got.GetArgs() {
+					if got.GetArgs()[i] != tt.wantArgs[i] {
+						t.Errorf("arg[%d]: want %v, got %v", i, tt.wantArgs[i], got.GetArgs()[i])
 					}
 				}
 			}

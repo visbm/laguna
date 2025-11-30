@@ -34,9 +34,11 @@ func (l *Listener) Listen(ctx context.Context) {
 	}
 
 	for {
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			l.log.Info("context canceled")
 			return
+		default:
 		}
 
 		if err := l.hd.Handle(ctx, r, w); err != nil {

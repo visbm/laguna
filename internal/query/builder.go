@@ -13,8 +13,8 @@ func NewBuilder() *Builder {
 
 func (b *Builder) Parse(in []byte) (Query, error) {
 	inputStr := string(in)
+	inputStr = strings.Trim(inputStr, "\r\n")
 	inputStr = strings.TrimSpace(inputStr)
-	inputStr = strings.Trim(inputStr, "\n")
 
 	tokens := strings.Fields(inputStr)
 

@@ -5,6 +5,8 @@ import (
 	"laguna/common/logger"
 	"laguna/internal/config"
 	"laguna/internal/database"
+	"laguna/internal/database/wal"
+	"laguna/internal/fs"
 	"laguna/internal/handlers"
 	"laguna/internal/query"
 	"laguna/internal/storage"
@@ -26,10 +28,8 @@ func main() {
 	lg := logger.New(conf.Logger)
 	lg.Info("Starting application")
 
-	eng := engine.NewEngine(conf.Engine, lg)
+	db, newWal := initDB(conf, lg)
 
-	st := storage.New(eng, lg)
-	db := database.NewDatabase(st)
 	qb := query.NewBuilder()
 
 	handler := handlers.NewUniversalHandler(qb, db, lg)
@@ -40,6 +40,8 @@ func main() {
 	ls := transport.NewListener(lg, handler, conf.Transport)
 	go ls.Listen(ctx)
 
+	go newWal.Start(ctx)
+
 	<-ctx.Done()
 
 	ls.Close()
@@ -47,5 +49,26 @@ func main() {
 	if err != nil {
 		lg.Error("failed to sync logger", logger.Error(err))
 	}
+
 	lg.Info("Shutting down...")
+}
+
+func initDB(conf *config.Config, lg logger.Logger) (*database.Database, *wal.WAL) {
+	fsWriter, err := fs.NewFileSegment(conf.WAL.Directory, conf.WAL.MaxSegmentSize.Int64())
+	if err != nil {
+		lg.Fatal("Failed to create file segment", logger.Error(err))
+	}
+
+	lw := wal.NewLogWriter(conf.WAL, lg, fsWriter)
+	lr := wal.NewLogReader(conf.WAL, lg)
+	newWAL := wal.NewWAL(conf.WAL, lg, lw, lr)
+
+	eng := engine.NewEngine(conf.Engine, lg)
+	st := storage.New(eng, lg)
+	db, err := database.NewDatabase(st, newWAL, lg)
+	if err != nil {
+		lg.Fatal("Failed to create database", logger.Error(err))
+	}
+
+	return db, newWAL
 }

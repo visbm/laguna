@@ -6,6 +6,7 @@ import (
 	"laguna/internal/config"
 	"laguna/internal/mocks"
 	"laguna/internal/query"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -15,16 +16,27 @@ type MockWriterWithError struct {
 	fail bool
 }
 
-func (w *MockWriterWithError) Write(ctx context.Context, q [][]byte) error {
+func (w *MockWriterWithError) Write(r []*Row) error {
 	if w.fail {
-		return errors.New("write error")
+		return errors.New("writeInSeg error")
 	}
 	return nil
 }
 
+type mockReader struct {
+	val []*Row
+	err error
+}
+
+func (m *mockReader) Read() ([]*Row, error) {
+	return m.val, m.err
+}
+
 func TestWALBasic(t *testing.T) {
 	wr := &MockWriterWithError{}
-	ctx, cancel := context.WithCancel(context.Background())
+
+	const walDeadline = 1 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), walDeadline)
 	defer cancel()
 
 	conf := config.WAL{
@@ -32,7 +44,7 @@ func TestWALBasic(t *testing.T) {
 		FlushInterval:  10 * time.Millisecond,
 	}
 
-	wal := NewWAL(conf, &mocks.MockLogger{}, wr)
+	wal := NewWAL(conf, &mocks.MockLogger{}, wr, &mockReader{})
 	b := query.NewBuilder()
 
 	go wal.Start(ctx)
@@ -52,21 +64,24 @@ func TestWALBasic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			q, err := b.Parse([]byte(tt.input))
 			if err != nil {
-				t.Fatal(err)
+				t.Error(err)
 			}
 
-			ch, err := wal.Write(ctx, q)
+			resp, err := wal.Write(ctx, q)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("Write() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Write() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
 
-			select {
-			case err := <-ch:
-				if (err != nil) != tt.wantErr {
-					t.Fatalf("Write() returned error = %v, wantErr %v", err, tt.wantErr)
-				}
-			case <-time.After(50 * time.Millisecond):
-				t.Fatal("timeout waiting for WAL flush")
+			errV, err := resp.GetResponseWithDeadline(ctx)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+
+			if errV != nil {
+				t.Error(err)
+				return
 			}
 		})
 	}
@@ -74,14 +89,17 @@ func TestWALBasic(t *testing.T) {
 
 func TestWALConcurrently(t *testing.T) {
 	wr := &MockWriterWithError{}
-	ctx, cancel := context.WithCancel(context.Background())
+	const walDeadline = 1 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), walDeadline)
+	defer cancel()
+
 	conf := config.WAL{
 		FlushBatchSize: 100,
 		FlushInterval:  10 * time.Millisecond,
 	}
 	runs := 100000
 
-	wal := NewWAL(conf, &mocks.MockLogger{}, wr)
+	wal := NewWAL(conf, &mocks.MockLogger{}, wr, &mockReader{})
 	b := query.NewBuilder()
 
 	go wal.Start(ctx)
@@ -98,19 +116,23 @@ func TestWALConcurrently(t *testing.T) {
 				return
 			}
 
-			ch, err := wal.Write(ctx, q)
+			resp, err := wal.Write(ctx, q)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				t.Error(err)
 				return
 			}
 
-			select {
-			case <-ctx.Done():
-				return
-			case err := <-ch:
-				if err != nil {
-					t.Error(err)
+			errV, err := resp.GetResponseWithDeadline(ctx)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
 				}
+				t.Error(err)
+			}
+
+			if errV != nil {
+				t.Error(err)
+				return
 			}
 		}(i)
 	}
@@ -125,7 +147,8 @@ func TestWALConcurrently(t *testing.T) {
 
 func TestWALWriterError(t *testing.T) {
 	wr := &MockWriterWithError{fail: true}
-	ctx, cancel := context.WithCancel(context.Background())
+	const walDeadline = 1 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), walDeadline)
 	defer cancel()
 
 	conf := config.WAL{
@@ -133,23 +156,127 @@ func TestWALWriterError(t *testing.T) {
 		FlushInterval:  10 * time.Millisecond,
 	}
 
-	wal := NewWAL(conf, &mocks.MockLogger{}, wr)
+	wal := NewWAL(conf, &mocks.MockLogger{}, wr, &mockReader{})
+
 	b := query.NewBuilder()
 
 	go wal.Start(ctx)
 
 	q, _ := b.Parse([]byte("SET key value"))
-	ch, err := wal.Write(ctx, q)
+	resp, err := wal.Write(ctx, q)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
-	select {
-	case err := <-ch:
-		if err == nil || err.Error() != "write error" {
-			t.Fatalf("expected write error, got %v", err)
+	errV, err := resp.GetResponseWithDeadline(ctx)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if errV != nil {
+		if errV.Error() != "writeInSeg error" {
+			t.Error(err)
+			return
 		}
-	case <-time.After(50 * time.Millisecond):
-		t.Fatal("timeout waiting for flush")
+	}
+}
+func TestReadWal_Success(t *testing.T) {
+	const walDeadline = 1 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), walDeadline)
+	defer cancel()
+
+	conf := config.WAL{
+		FlushBatchSize: 2,
+		FlushInterval:  10 * time.Millisecond,
+	}
+
+	tests := []struct {
+		name    string
+		records []*Row
+		want    []query.Query
+		wantErr bool
+	}{
+		{
+			name: "normal SET and DEL",
+			records: []*Row{
+				{lsnID: 42, methodID: query.SetMethodID, args: []string{"user", "1"}},
+				{lsnID: 99, methodID: query.DelMethodID, args: []string{"user"}},
+			},
+			want: []query.Query{
+				query.NewQuery(query.SetMethodID, []string{"user", "1"}),
+				query.NewQuery(query.DelMethodID, []string{"user"}),
+			},
+			wantErr: false,
+		},
+		{
+			name: "SET with multiple args",
+			records: []*Row{
+				{lsnID: 101, methodID: query.SetMethodID, args: []string{"config", "hello", "world", "!"}},
+			},
+			want: []query.Query{
+				query.NewQuery(query.SetMethodID, []string{"config", "hello", "world", "!"}),
+			},
+			wantErr: false,
+		},
+		{
+			name:    "empty WAL",
+			records: []*Row{},
+			want:    []query.Query{},
+			wantErr: false,
+		},
+		{
+			name:    "reader error",
+			records: nil,
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "mixed SET, GET, DEL",
+			records: []*Row{
+				{lsnID: 200, methodID: query.SetMethodID, args: []string{"k1", "v1"}},
+				{lsnID: 201, methodID: query.GetMethodID, args: []string{"k1"}},
+				{lsnID: 202, methodID: query.DelMethodID, args: []string{"k1"}},
+			},
+			want: []query.Query{
+				query.NewQuery(query.SetMethodID, []string{"k1", "v1"}),
+				query.NewQuery(query.GetMethodID, []string{"k1"}),
+				query.NewQuery(query.DelMethodID, []string{"k1"}),
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			r := &mockReader{
+				val: tt.records,
+				err: nil,
+			}
+			if tt.wantErr {
+				r.err = errors.New("read error")
+			}
+
+			w := NewWAL(conf, &mocks.MockLogger{}, &MockWriterWithError{}, r)
+			go w.Start(ctx)
+
+			got, err := w.ReadWal()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ReadWal() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr {
+				if len(got) != len(tt.want) {
+					t.Fatalf("ReadWal() len = %d, want %d", len(got), len(tt.want))
+				}
+
+				for i := range got {
+					if !reflect.DeepEqual(got[i], tt.want[i]) {
+						t.Fatalf("ReadWal() got[%d] = %v, want %v", i, got[i], tt.want[i])
+					}
+				}
+			}
+		})
 	}
 }
