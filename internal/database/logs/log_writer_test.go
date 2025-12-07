@@ -3,6 +3,7 @@ package logs
 import (
 	"bytes"
 	"laguna/internal/config"
+	"laguna/internal/database/wal"
 	"laguna/internal/fs"
 	"laguna/internal/mocks"
 	"laguna/internal/query"
@@ -32,22 +33,10 @@ func TestLogWriter_Write_basicBatches(t *testing.T) {
 
 	lw := NewLogWriterWithTarget(mockLg, sm)
 
-	batch := []*Row{
-		{
-			lsnID:    1,
-			methodID: query.GetMethodID,
-			args:     []string{"user"},
-		},
-		{
-			lsnID:    2,
-			methodID: query.SetMethodID,
-			args:     []string{"user", "1"},
-		},
-		{
-			lsnID:    3,
-			methodID: query.DelMethodID,
-			args:     []string{"user"},
-		},
+	batch := []*wal.Row{
+		wal.NewRow(1, query.GetMethodID, []string{"user"}),
+		wal.NewRow(2, query.SetMethodID, []string{"user", "1"}),
+		wal.NewRow(3, query.DelMethodID, []string{"user"}),
 	}
 
 	var batchBytes []byte
@@ -88,10 +77,10 @@ func TestLogWriter_Write_manyBatches_segmentRotation(t *testing.T) {
 
 	lw := NewLogWriterWithTarget(mockLg, sm)
 
-	rows := []*Row{
-		{lsnID: 1, methodID: query.SetMethodID, args: []string{"a", "1"}},
-		{lsnID: 2, methodID: query.SetMethodID, args: []string{"b", "2"}},
-		{lsnID: 3, methodID: query.SetMethodID, args: []string{"c", "3"}},
+	rows := []*wal.Row{
+		wal.NewRow(1, query.SetMethodID, []string{"a", "1"}),
+		wal.NewRow(2, query.SetMethodID, []string{"b", "2"}),
+		wal.NewRow(3, query.SetMethodID, []string{"c", "3"}),
 	}
 
 	var wantPerBatch []byte
@@ -140,12 +129,12 @@ func TestLogWriter_Write_oversizedEntry(t *testing.T) {
 
 	lw := NewLogWriterWithTarget(mockLg, sm)
 
-	rows := []*Row{
-		{lsnID: 1, methodID: query.SetMethodID, args: []string{"k1", "Hello1"}},
-		{lsnID: 2, methodID: query.SetMethodID, args: []string{"k2", "Hello2"}},
-		{lsnID: 3, methodID: query.SetMethodID, args: []string{"k3", "Hello3"}},
-		{lsnID: 4, methodID: query.SetMethodID, args: []string{"k4", "Hello4"}},
-		{lsnID: 5, methodID: query.SetMethodID, args: []string{"k5", "this entry is definitely longer than the configured max segment size and should be handled specially"}},
+	rows := []*wal.Row{
+		wal.NewRow(1, query.SetMethodID, []string{"k1", "Hello1"}),
+		wal.NewRow(2, query.SetMethodID, []string{"k2", "Hello2"}),
+		wal.NewRow(3, query.SetMethodID, []string{"k3", "Hello3"}),
+		wal.NewRow(4, query.SetMethodID, []string{"k4", "Hello4"}),
+		wal.NewRow(5, query.SetMethodID, []string{"k5", "this entry is definitely longer than the configured max segment size and should be handled specially"}),
 	}
 
 	var wantPerBatch []byte

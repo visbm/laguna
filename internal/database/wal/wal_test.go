@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"laguna/internal/config"
-	"laguna/internal/database/logs"
 	"laguna/internal/mocks"
 	"laguna/internal/query"
+	"laguna/utils/concurrency"
 	"reflect"
 	"sync"
 	"testing"
@@ -17,7 +17,7 @@ type MockWriterWithError struct {
 	fail bool
 }
 
-func (w *MockWriterWithError) Write(_ []*logs.Row) error {
+func (w *MockWriterWithError) Write(_ []*Row) error {
 	if w.fail {
 		return errors.New("writeInSeg error")
 	}
@@ -25,12 +25,25 @@ func (w *MockWriterWithError) Write(_ []*logs.Row) error {
 }
 
 type mockReader struct {
-	val []*logs.Row
+	val []*Row
 	err error
 }
 
-func (m *mockReader) Read() ([]*logs.Row, error) {
+func (m *mockReader) ReadFromFiles(directory string) ([]*Row, error) {
 	return m.val, m.err
+}
+
+func (m *mockReader) ReadFromFilesStream(directory string) concurrency.FutureRespWithErr[[]*Row] {
+	resp := concurrency.NewFutureRespWithErr[[]*Row]()
+	go func() {
+		defer resp.Done()
+		if m.err != nil {
+			resp.Put(nil, m.err)
+			return
+		}
+		resp.Put(m.val, nil)
+	}()
+	return resp
 }
 
 func TestWALBasic(t *testing.T) {
@@ -198,15 +211,15 @@ func TestReadWal_Success(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		records []*logs.Row
+		records []*Row
 		want    []query.Query
 		wantErr bool
 	}{
 		{
 			name: "normal SET and DEL",
-			records: []*logs.Row{
-				logs.NewRow(42, query.SetMethodID, []string{"user", "1"}),
-				logs.NewRow(99, query.DelMethodID, []string{"user"}),
+			records: []*Row{
+				NewRow(42, query.SetMethodID, []string{"user", "1"}),
+				NewRow(99, query.DelMethodID, []string{"user"}),
 			},
 			want: []query.Query{
 				query.NewQuery(query.SetMethodID, []string{"user", "1"}),
@@ -216,8 +229,8 @@ func TestReadWal_Success(t *testing.T) {
 		},
 		{
 			name: "SET with multiple args",
-			records: []*logs.Row{
-				logs.NewRow(101, query.SetMethodID, []string{"config", "hello", "world", "!"}),
+			records: []*Row{
+				NewRow(101, query.SetMethodID, []string{"config", "hello", "world", "!"}),
 			},
 			want: []query.Query{
 				query.NewQuery(query.SetMethodID, []string{"config", "hello", "world", "!"}),
@@ -226,7 +239,7 @@ func TestReadWal_Success(t *testing.T) {
 		},
 		{
 			name:    "empty WAL",
-			records: []*logs.Row{},
+			records: []*Row{},
 			want:    []query.Query{},
 			wantErr: false,
 		},
@@ -238,10 +251,10 @@ func TestReadWal_Success(t *testing.T) {
 		},
 		{
 			name: "mixed SET, GET, DEL",
-			records: []*logs.Row{
-				logs.NewRow(200, query.SetMethodID, []string{"k1", "v1"}),
-				logs.NewRow(201, query.GetMethodID, []string{"k1"}),
-				logs.NewRow(202, query.DelMethodID, []string{"k1"}),
+			records: []*Row{
+				NewRow(200, query.SetMethodID, []string{"k1", "v1"}),
+				NewRow(201, query.GetMethodID, []string{"k1"}),
+				NewRow(202, query.DelMethodID, []string{"k1"}),
 			},
 			want: []query.Query{
 				query.NewQuery(query.SetMethodID, []string{"k1", "v1"}),

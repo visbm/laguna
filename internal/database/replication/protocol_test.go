@@ -74,6 +74,24 @@ func TestResponse_MarshalUnmarshal(t *testing.T) {
 			err:     errors.New("bad request"),
 			wantErr: false,
 		},
+		{
+			name:    "empty data no error",
+			data:    []byte{},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "large data",
+			data:    make([]byte, 10000),
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error with empty message",
+			data:    nil,
+			err:     errors.New(""),
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -99,6 +117,98 @@ func TestResponse_MarshalUnmarshal(t *testing.T) {
 					(resp2.Err != nil && tt.err != nil && resp2.Err.Error() != tt.err.Error()) {
 					t.Errorf("Unmarshal() Err = %v, want %v", resp2.Err, tt.err)
 				}
+			}
+		})
+	}
+}
+
+func TestRequest_MarshalUnmarshal_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		lsnID   uint64
+		wantErr bool
+	}{
+		{
+			name:    "zero LSN",
+			lsnID:   0,
+			wantErr: false,
+		},
+		{
+			name:    "max uint64 LSN",
+			lsnID:   ^uint64(0),
+			wantErr: false,
+		},
+		{
+			name:    "large LSN",
+			lsnID:   18446744073709551615,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &Request{LsnID: tt.lsnID}
+			data, err := req.Marshal()
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+
+			if len(data) != reqSize {
+				t.Errorf("Marshal() length = %d, want %d", len(data), reqSize)
+			}
+
+			var req2 Request
+			err = req2.Unmarshal(data)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Unmarshal() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr && req2.LsnID != tt.lsnID {
+				t.Errorf("Unmarshal() LsnID = %v, want %v", req2.LsnID, tt.lsnID)
+			}
+		})
+	}
+}
+
+func TestResponse_Unmarshal_InvalidData(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr bool
+	}{
+		{
+			name:    "empty data",
+			data:    []byte{},
+			wantErr: true,
+		},
+		{
+			name:    "too short - only flag",
+			data:    []byte{0},
+			wantErr: true,
+		},
+		{
+			name:    "too short - flag and partial length",
+			data:    []byte{0, 0, 0},
+			wantErr: true,
+		},
+		{
+			name:    "negative data length",
+			data:    []byte{0, 0xFF, 0xFF, 0xFF, 0xFF},
+			wantErr: true,
+		},
+		{
+			name:    "data length exceeds buffer",
+			data:    []byte{0, 0, 0, 0, 100, 0, 0, 0, 0}, // length = 100 but only 1 byte after
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var resp Response
+			err := resp.Unmarshal(tt.data)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Unmarshal() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

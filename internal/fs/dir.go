@@ -2,6 +2,7 @@ package fs
 
 import (
 	"os"
+	"path/filepath"
 )
 
 func ReadDir(path string) ([]string, error) {
@@ -20,7 +21,13 @@ func ReadDir(path string) ([]string, error) {
 }
 
 func OpenFile(path string) (*os.File, error) {
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0644)
+	dir := filepath.Dir(path)
+	err := os.MkdirAll(dir, 0755)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
 	}

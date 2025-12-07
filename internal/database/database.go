@@ -89,8 +89,11 @@ func (e *Database) setInWal(ctx context.Context, q query.Query) error {
 	ctx, cancel := context.WithTimeout(ctx, walDeadline)
 	defer cancel()
 
-	err, timeOutErr := resp.GetResponseWithDeadline(ctx)
-	if err != nil || timeOutErr != nil {
+	errV, err := resp.GetResponseWithDeadline(ctx)
+	if errV != nil || err != nil {
+		if errV != nil {
+			return errV
+		}
 		return err
 	}
 

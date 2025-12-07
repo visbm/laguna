@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"laguna/internal/database/wal"
 	"laguna/internal/mocks"
 	"laguna/internal/query"
 	"os"
@@ -13,8 +14,8 @@ import (
 func TestLogReader_Read(t *testing.T) {
 	dir := t.TempDir()
 
-	row1 := &Row{lsnID: 1, methodID: query.SetMethodID, args: []string{"user", "foo"}}
-	row2 := &Row{lsnID: 2, methodID: query.GetMethodID, args: []string{"user"}}
+	row1 := wal.NewRow(1, query.SetMethodID, []string{"user", "foo"})
+	row2 := wal.NewRow(2, query.GetMethodID, []string{"user"})
 
 	data1, _ := row1.Marshal()
 	data2, _ := row2.Marshal()

@@ -113,6 +113,9 @@ func (lr *LogReader) readFiles(mainDir string, names []string) ([]*wal.Row, erro
 		}
 
 		data, err := lr.Read(file)
+		if err != nil {
+			return nil, err
+		}
 
 		resp = append(resp, data...)
 

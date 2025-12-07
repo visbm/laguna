@@ -2,9 +2,13 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
+	"laguna/common/logger"
+	"laguna/internal/config"
 	"laguna/internal/transport/tcp"
+	"laguna/utils/data_type"
 	"log"
 	"os"
 	"syscall"
@@ -21,7 +25,19 @@ var (
 func main() {
 	flag.Parse()
 
-	cli, err := tcp.NewClient(*address, *size, *idleTimeout)
+	conf := config.Client{
+		Address:     *address,
+		MaxRespSize: data_type.ByteSize(*size),
+		Deadline:    *idleTimeout,
+	}
+
+	loggerConf := config.Logger{
+		Level: "info",
+		Out:   "stdout",
+	}
+	lg := logger.New(loggerConf)
+
+	cli, err := tcp.NewClient(conf, lg)
 	if err != nil {
 		panic(err)
 	}
@@ -32,6 +48,10 @@ func main() {
 
 	log.Print("New laguna cli")
 
+	ctx, cancel := context.WithTimeout(context.Background(), conf.Deadline)
+	defer ctx.Done()
+	defer cancel()
+
 	for {
 		_ = write(w, []byte("> "))
 
@@ -41,7 +61,7 @@ func main() {
 			continue
 		}
 
-		resp, err := cli.Send(line)
+		resp, err := cli.Send(ctx, line)
 		if err != nil {
 			if errors.Is(err, syscall.EPIPE) {
 				log.Print("connection closed")

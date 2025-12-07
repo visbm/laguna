@@ -35,7 +35,7 @@ func TestTCPListener_MultiConn(t *testing.T) {
 
 	addr := "127.0.0.1:6060"
 
-	conf := config.Transport{
+	conf := config.TCPServer{
 		Address:        addr,
 		MaxConn:        5,
 		MaxMessageSize: 1024,

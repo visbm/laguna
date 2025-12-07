@@ -1,0 +1,37 @@
+engine:
+  type: inmemory
+  shards: 100
+logger:
+  level: debug
+  out: stdout
+  disable_stacktrace: true
+transport: #tcp cli
+  type: cli
+  server:
+    address: localhost:8080 #nc localhost 8080
+    max_conn: 100
+    max_message_size: 4KB
+    idle_timeout: 5m
+    sem_wait_timeout: 5s
+wal:
+  enable: true
+  flush_batch_size: 100
+  flush_interval: "10ms"
+  max_segment_size: "1MB"
+  directory: "./data/wal"
+replication:
+  enable: true
+  is_master: false
+  sync_interval: "1s"
+  client:
+    retry_count: 3
+    address: localhost:9090
+    max_resp_size: 1MB
+    deadline: 10m
+  server:
+    address: localhost:9090 #nc localhost 9090
+    max_conn: 5
+    max_message_size: 400KB
+    idle_timeout: 10m
+    sem_wait_timeout: 10s
+
