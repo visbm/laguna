@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"errors"
 	"flag"
+	"laguna/internal/transport/tcp"
 	"log"
-	"net"
 	"os"
 	"syscall"
 	"time"
@@ -17,54 +17,11 @@ var (
 	idleTimeout = flag.Duration("deadline", time.Minute*5, "deadline for client connection")
 )
 
-type Client struct {
-	conn      net.Conn
-	address   string
-	respSizeB int
-	deadline  time.Duration
-}
-
-func NewClient(addr string, respS int, deadline time.Duration) (*Client, error) {
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-
-	err = conn.SetDeadline(time.Now().Add(deadline))
-	if err != nil {
-		return nil, err
-	}
-
-	return &Client{conn: conn, address: addr, respSizeB: respS, deadline: deadline}, nil
-}
-
-func (c *Client) Close() {
-	err := c.conn.Close()
-	if err != nil {
-		return
-	}
-}
-
-func (c *Client) Send(req string) (string, error) {
-	_, err := c.conn.Write([]byte(req))
-	if err != nil {
-		return "", err
-	}
-
-	resp := make([]byte, c.respSizeB)
-	n, err := c.conn.Read(resp)
-	if err != nil {
-		return "", err
-	}
-
-	return string(resp[:n]), nil
-}
-
 // go run client.go -address=localhost:8080
 func main() {
 	flag.Parse()
 
-	cli, err := NewClient(*address, *size, *idleTimeout)
+	cli, err := tcp.NewClient(*address, *size, *idleTimeout)
 	if err != nil {
 		panic(err)
 	}
@@ -76,9 +33,9 @@ func main() {
 	log.Print("New laguna cli")
 
 	for {
-		_ = write(w, "> ")
+		_ = write(w, []byte("> "))
 
-		line, err := r.ReadString('\n')
+		line, err := r.ReadBytes('\n')
 		if err != nil {
 			writeError(w, err)
 			continue
@@ -104,8 +61,8 @@ func main() {
 	log.Print("Exiting")
 }
 
-func write(w *bufio.Writer, p string) error {
-	_, err := w.Write([]byte(p))
+func write(w *bufio.Writer, p []byte) error {
+	_, err := w.Write(p)
 	if err != nil {
 		return err
 	}

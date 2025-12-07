@@ -4,7 +4,7 @@ import (
 	"context"
 	"laguna/common/logger"
 	"laguna/internal/config"
-	"laguna/internal/storage/engine/inmemory"
+	"laguna/internal/database/storage/engine/inmemory"
 )
 
 const inMemory = "inmemory"
@@ -19,9 +19,9 @@ func NewEngine(c config.Engine, log logger.Logger) Engine {
 	log.Info("initializing engine", logger.String("type", c.Type))
 	switch c.Type {
 	case inMemory:
-		return inmemory.NewEngine(log)
+		return inmemory.NewEngine(log, c.Shards)
 	default:
-		return inmemory.NewEngine(log)
+		return inmemory.NewEngine(log, c.Shards)
 	}
 
 }

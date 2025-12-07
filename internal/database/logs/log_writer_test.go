@@ -1,4 +1,4 @@
-package wal
+package logs
 
 import (
 	"bytes"
@@ -6,13 +6,15 @@ import (
 	"laguna/internal/fs"
 	"laguna/internal/mocks"
 	"laguna/internal/query"
-	"laguna/utils"
+	"laguna/utils/data_type"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+var mockLg = &mocks.MockLogger{}
 
 func TestLogWriter_Write_basicBatches(t *testing.T) {
 	dir := t.TempDir()
@@ -21,13 +23,14 @@ func TestLogWriter_Write_basicBatches(t *testing.T) {
 		MaxSegmentSize: 1024,
 	}
 
-	seg, err := fs.NewFileSegment(conf.Directory, conf.MaxSegmentSize.Int64())
+	seg, err := fs.NewFileSegment(mockLg, conf.Directory, conf.MaxSegmentSize.Int64())
 	if err != nil {
 		t.Fatalf("NewFileSegment failed: %v", err)
 	}
 
-	logger := &mocks.MockLogger{}
-	lw := NewLogWriter(conf, logger, seg)
+	sm := fs.NewSegmentManager(mockLg, seg)
+
+	lw := NewLogWriterWithTarget(mockLg, sm)
 
 	batch := []*Row{
 		{
@@ -76,11 +79,14 @@ func TestLogWriter_Write_manyBatches_segmentRotation(t *testing.T) {
 		MaxSegmentSize: maxSegmentSize,
 	}
 
-	seg, err := fs.NewFileSegment(conf.Directory, conf.MaxSegmentSize.Int64())
-	require.NoError(t, err, "NewFileSegment failed")
+	seg, err := fs.NewFileSegment(mockLg, conf.Directory, conf.MaxSegmentSize.Int64())
+	if err != nil {
+		t.Fatalf("NewFileSegment failed: %v", err)
+	}
 
-	logger := &mocks.MockLogger{}
-	lw := NewLogWriter(conf, logger, seg)
+	sm := fs.NewSegmentManager(mockLg, seg)
+
+	lw := NewLogWriterWithTarget(mockLg, sm)
 
 	rows := []*Row{
 		{lsnID: 1, methodID: query.SetMethodID, args: []string{"a", "1"}},
@@ -104,7 +110,7 @@ func TestLogWriter_Write_manyBatches_segmentRotation(t *testing.T) {
 	require.Equal(t, len(want), len(got), "unexpected total bytes written")
 
 	files, err := os.ReadDir(dir)
-	require.NoError(t, err, "read dir failed")
+	require.NoError(t, err, "readFrom dir failed")
 
 	expectedFiles := 10
 	require.Equal(t, expectedFiles, len(files), "unexpected number of WAL files")
@@ -122,14 +128,17 @@ func TestLogWriter_Write_oversizedEntry(t *testing.T) {
 
 	conf := config.WAL{
 		Directory:      dir,
-		MaxSegmentSize: utils.ByteSize(maxSegmentSize),
+		MaxSegmentSize: data_type.ByteSize(maxSegmentSize),
 	}
 
-	seg, err := fs.NewFileSegment(conf.Directory, conf.MaxSegmentSize.Int64())
-	require.NoError(t, err, "NewFileSegment failed")
+	seg, err := fs.NewFileSegment(mockLg, conf.Directory, conf.MaxSegmentSize.Int64())
+	if err != nil {
+		t.Fatalf("NewFileSegment failed: %v", err)
+	}
 
-	logger := &mocks.MockLogger{}
-	lw := NewLogWriter(conf, logger, seg)
+	sm := fs.NewSegmentManager(mockLg, seg)
+
+	lw := NewLogWriterWithTarget(mockLg, sm)
 
 	rows := []*Row{
 		{lsnID: 1, methodID: query.SetMethodID, args: []string{"k1", "Hello1"}},
@@ -155,7 +164,7 @@ func TestLogWriter_Write_oversizedEntry(t *testing.T) {
 	require.True(t, bytes.Equal(got, want), "written bytes do not match expected")
 
 	files, err := os.ReadDir(dir)
-	require.NoError(t, err, "read dir failed")
+	require.NoError(t, err, "readFrom dir failed")
 
 	expectedFiles := runs * len(rows)
 	require.Equal(t, expectedFiles, len(files), "unexpected number of WAL files")
@@ -165,7 +174,7 @@ func readAllLines(t *testing.T, dir string) []byte {
 	t.Helper()
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("read dir failed: %v", err)
+		t.Fatalf("readFrom dir failed: %v", err)
 	}
 	var lines []byte
 	for _, f := range files {
@@ -175,7 +184,7 @@ func readAllLines(t *testing.T, dir string) []byte {
 		path := filepath.Join(dir, f.Name())
 		content, err := os.ReadFile(path)
 		if err != nil {
-			t.Fatalf("read file %s failed: %v", path, err)
+			t.Fatalf("readFrom file %s failed: %v", path, err)
 		}
 
 		lines = append(lines, content...)

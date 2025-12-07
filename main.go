@@ -5,14 +5,17 @@ import (
 	"laguna/common/logger"
 	"laguna/internal/config"
 	"laguna/internal/database"
+	"laguna/internal/database/logs"
+	"laguna/internal/database/replication"
+	"laguna/internal/database/storage"
+	"laguna/internal/database/storage/engine"
 	"laguna/internal/database/wal"
 	"laguna/internal/fs"
 	"laguna/internal/handlers"
 	"laguna/internal/query"
-	"laguna/internal/storage"
-	"laguna/internal/storage/engine"
 	"laguna/internal/transport"
 	"laguna/internal/transport/cli"
+	"laguna/internal/transport/tcp"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,50 +28,127 @@ func main() {
 
 	conf := config.NewConfig("config.yaml")
 
-	lg := logger.New(conf.Logger)
-	lg.Info("Starting application")
+	log := logger.New(conf.Logger)
+	log.Info("Starting application")
 
-	db, newWal := initDB(conf, lg)
+	db := initDB(ctx, conf, log)
 
 	qb := query.NewBuilder()
+	handler := handlers.NewUniversalHandler(qb, db, log)
 
-	handler := handlers.NewUniversalHandler(qb, db, lg)
+	{ // todo delete
+		cliListener := cli.NewListener(log, handler)
+		cliListener.Listen(ctx)
+	}
 
-	cliListener := cli.NewListener(lg, handler) // todo delete
-	go cliListener.Listen(ctx)
-
-	ls := transport.NewListener(lg, handler, conf.Transport)
-	go ls.Listen(ctx)
-
-	go newWal.Start(ctx)
+	ls := transport.NewListener(log, handler, conf.Transport)
+	ls.Listen(ctx)
 
 	<-ctx.Done()
 
 	ls.Close()
-	err := lg.Sync()
+	err := log.Sync()
 	if err != nil {
-		lg.Error("failed to sync logger", logger.Error(err))
+		log.Error("failed to sync logger", logger.Error(err))
 	}
 
-	lg.Info("Shutting down...")
+	log.Info("Shutting down...")
 }
 
-func initDB(conf *config.Config, lg logger.Logger) (*database.Database, *wal.WAL) {
-	fsWriter, err := fs.NewFileSegment(conf.WAL.Directory, conf.WAL.MaxSegmentSize.Int64())
+func initDB(ctx context.Context, conf *config.Config, log logger.Logger) *database.Database {
+
+	eng := engine.NewEngine(conf.Engine, log)
+	st := storage.New(eng, log)
+
+	newWAL, err := initWal(ctx, conf, log)
+
+	db, err := database.NewDatabase(st, conf.Replication.IsMaster, newWAL, log)
 	if err != nil {
-		lg.Fatal("Failed to create file segment", logger.Error(err))
+		log.Fatal("Failed to create database", logger.Error(err))
 	}
 
-	lw := wal.NewLogWriter(conf.WAL, lg, fsWriter)
-	lr := wal.NewLogReader(conf.WAL, lg)
-	newWAL := wal.NewWAL(conf.WAL, lg, lw, lr)
+	initReplication(ctx, st, conf, log)
 
-	eng := engine.NewEngine(conf.Engine, lg)
-	st := storage.New(eng, lg)
-	db, err := database.NewDatabase(st, newWAL, lg)
+	return db
+}
+
+func initWal(ctx context.Context, conf *config.Config, log logger.Logger) (database.WAL, error) {
+	fileSegment, err := fs.NewFileSegment(log, conf.WAL.Directory, conf.WAL.MaxSegmentSize.Int64())
 	if err != nil {
-		lg.Fatal("Failed to create database", logger.Error(err))
+		log.Fatal("Failed to create file segment", logger.Error(err))
 	}
 
-	return db, newWAL
+	sm := fs.NewSegmentManager(log, fileSegment)
+
+	lw := logs.NewLogWriterWithTarget(log, sm)
+	lr := logs.NewLogReader(log)
+
+	newWAL := wal.NewWAL(conf.WAL, log, lw, lr)
+
+	newWAL.Start(ctx)
+
+	return newWAL, nil
+}
+
+func initReplication(ctx context.Context, st replication.Storage, conf *config.Config, lg logger.Logger) {
+	if !conf.Replication.Enable {
+		return
+	}
+
+	if conf.Replication.IsMaster {
+		initMaster(ctx, conf, lg)
+	} else {
+		initSlave(ctx, st, conf, lg)
+	}
+
+}
+
+func initMaster(ctx context.Context, conf *config.Config, log logger.Logger) {
+	log.Info("Initializing master...")
+
+	connWriter := logs.NewLogWriter(log)
+	connReader := logs.NewLogReader(log)
+	master := replication.NewMaster(connReader, connWriter, log)
+	masterTcpServer := tcp.NewListener(log, master, conf.Replication.Server)
+
+	masterTcpServer.Listen(ctx)
+
+	log.Info("Master initialized")
+
+	go func() {
+		<-ctx.Done()
+		masterTcpServer.Close()
+	}()
+
+}
+
+func initSlave(ctx context.Context, st replication.Storage, conf *config.Config, log logger.Logger) {
+	log.Info("Initializing slave")
+
+	syncInterval := conf.Replication.SyncInterval
+
+	slaveCl, err := tcp.NewClient(conf.Replication.Client, log)
+	if err != nil {
+		log.Fatal("Failed to create client", logger.Error(err))
+	}
+	lgReader := logs.NewLogReader(log)
+
+	var slave *replication.Slave
+	if conf.WAL.Enable {
+		fileSegment, err := fs.NewFileSegment(log, conf.WAL.Directory, conf.WAL.MaxSegmentSize.Int64())
+		if err != nil {
+			log.Fatal("Failed to create file segment", logger.Error(err))
+		}
+		sm := fs.NewSegmentManager(log, fileSegment)
+
+		lgWriter := logs.NewLogWriterWithTarget(log, sm)
+		slave = replication.NewSlaveWithWal(slaveCl, lgReader, lgWriter, st, syncInterval, log)
+
+	} else {
+		slave = replication.NewSlave(slaveCl, lgReader, st, syncInterval, log)
+	}
+
+	log.Info("Slave initialized")
+
+	slave.Start(ctx)
 }

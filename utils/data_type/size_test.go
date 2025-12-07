@@ -1,4 +1,4 @@
-package utils
+package data_type
 
 import "testing"
 

@@ -1,4 +1,4 @@
-package utils
+package id_generator
 
 import (
 	"sync"

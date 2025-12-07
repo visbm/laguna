@@ -1,4 +1,4 @@
-package utils
+package ctx_utils
 
 import "context"
 
@@ -16,7 +16,7 @@ func SetTxInContext(ctx context.Context, txID uint64) context.Context {
 	return context.WithValue(ctx, txKey, txID)
 }
 
-func GetTxInContext(ctx context.Context) uint64 {
+func GetTxFromContext(ctx context.Context) uint64 {
 	if ctx == nil {
 		return 0
 	}

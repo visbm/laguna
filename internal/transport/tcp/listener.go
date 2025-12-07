@@ -8,7 +8,7 @@ import (
 	"laguna/common/logger"
 	"laguna/internal/config"
 	"laguna/internal/handlers"
-	"laguna/utils"
+	"laguna/utils/concurrency"
 	"net"
 	"time"
 )
@@ -24,7 +24,7 @@ type tcpListener struct {
 	idleTimeout    time.Duration
 	semWaitTimeout time.Duration
 
-	sem *utils.Semaphore
+	sem *concurrency.Semaphore
 }
 
 const (
@@ -35,7 +35,7 @@ const (
 	defaultIdleTimeout    = 5 * time.Minute
 )
 
-func NewListener(log logger.Logger, hd handlers.Handler, c config.Transport) *tcpListener {
+func NewListener(log logger.Logger, hd handlers.Handler, c config.TCPServer) *tcpListener {
 	l := &tcpListener{
 		log:            log,
 		hd:             hd,
@@ -62,11 +62,15 @@ func NewListener(log logger.Logger, hd handlers.Handler, c config.Transport) *tc
 		l.semWaitTimeout = defaultSemWaitTimeout
 	}
 
-	l.sem = utils.NewSemaphore(l.maxConn)
+	l.sem = concurrency.NewSemaphore(l.maxConn)
 	return l
 }
 
 func (l *tcpListener) Listen(ctx context.Context) {
+	go l.listen(ctx)
+}
+
+func (l *tcpListener) listen(ctx context.Context) {
 	l.log.Info("starting tcp listener at address", logger.String("address", l.address))
 
 	listener, err := net.Listen("tcp", l.address)

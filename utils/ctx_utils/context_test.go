@@ -1,4 +1,4 @@
-package utils
+package ctx_utils
 
 import (
 	"context"
@@ -45,11 +45,11 @@ func TestTxInContext(t *testing.T) {
 			setup: func() context.Context {
 				ctx1 := SetTxInContext(context.Background(), 100)
 				ctx2 := SetTxInContext(context.Background(), 200)
-				if GetTxInContext(ctx1) != 100 {
-					t.Fatalf("ctx1 expected 100, got %d", GetTxInContext(ctx1))
+				if GetTxFromContext(ctx1) != 100 {
+					t.Fatalf("ctx1 expected 100, got %d", GetTxFromContext(ctx1))
 				}
-				if GetTxInContext(ctx2) != 200 {
-					t.Fatalf("ctx2 expected 200, got %d", GetTxInContext(ctx2))
+				if GetTxFromContext(ctx2) != 200 {
+					t.Fatalf("ctx2 expected 200, got %d", GetTxFromContext(ctx2))
 				}
 				return ctx1
 			},
@@ -66,7 +66,7 @@ func TestTxInContext(t *testing.T) {
 				ctx = SetTxInContext(tc.ctx, tc.txID)
 			}
 
-			got := GetTxInContext(ctx)
+			got := GetTxFromContext(ctx)
 			if got != tc.expect {
 				t.Fatalf("[%s] expected %d, got %d", tc.name, tc.expect, got)
 			}

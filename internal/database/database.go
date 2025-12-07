@@ -2,12 +2,17 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"laguna/common/logger"
 	"laguna/internal/query"
-	"laguna/utils"
+	"laguna/utils/concurrency"
+	"laguna/utils/ctx_utils"
+	"laguna/utils/id_generator"
 	"time"
 )
+
+var errNonReadOpSlave = errors.New("non read operation on slave")
 
 type Storage interface {
 	Get(ctx context.Context, key string) (string, error)
@@ -16,24 +21,30 @@ type Storage interface {
 }
 
 type WAL interface {
-	Write(ctx context.Context, q query.Query) (utils.FutureResp[error], error)
-	ReadWal() ([]query.Query, error)
+	Write(ctx context.Context, q query.Query) (concurrency.FutureResp[error], error)
+	RestoreStream() (concurrency.FutureRespWithErr[[]query.Query], error)
 }
 
 type Database struct {
-	lg    logger.Logger
+	log   logger.Logger
 	st    Storage
-	txGen *utils.Generator
-	wal   WAL
+	txGen *id_generator.Generator
+
+	wal WAL
+
+	isMaster bool
+	curLsnID int64
 }
 
-func NewDatabase(st Storage, wal WAL, lg logger.Logger) (*Database, error) {
+func NewDatabase(st Storage, isMaster bool, wal WAL, log logger.Logger) (*Database, error) {
 	db := &Database{
-		lg:    lg,
-		st:    st,
-		txGen: utils.NewIDGenerator(),
-		wal:   wal,
+		log:      log,
+		st:       st,
+		txGen:    id_generator.NewIDGenerator(),
+		wal:      wal,
+		isMaster: isMaster,
 	}
+
 	err := db.restoreFromWal()
 	if err != nil {
 		return nil, err
@@ -50,7 +61,12 @@ func (e *Database) Execute(ctx context.Context, q query.Query) (string, error) {
 		}
 	}
 
-	ctx = utils.SetTxInContext(ctx, e.txGen.NextID())
+	if !e.isMaster && q.MethodID() != query.GetMethodID {
+		e.log.Error("non read operation on slave", logger.Error(errNonReadOpSlave))
+		return "", errNonReadOpSlave
+	}
+
+	ctx = ctx_utils.SetTxInContext(ctx, e.txGen.NextID())
 
 	ans, err := e.exec(ctx, q)
 	if err != nil {
@@ -84,6 +100,7 @@ func (e *Database) setInWal(ctx context.Context, q query.Query) error {
 func (e *Database) exec(ctx context.Context, q query.Query) (string, error) {
 	args := q.GetArgs()
 	method := q.MethodID()
+
 	switch method {
 	case query.GetMethodID:
 		value, err := e.st.Get(ctx, args[query.GetKeyIdx])
@@ -109,19 +126,34 @@ func (e *Database) restoreFromWal() error {
 	if !e.walEnable() {
 		return nil
 	}
-	queries, err := e.wal.ReadWal()
+	e.log.Info("restoring from WAL")
+
+	qStream, err := e.wal.RestoreStream()
 	if err != nil {
-		e.lg.Error("read wal failed", logger.Error(err))
+		e.log.Error("read wal failed", logger.Error(err))
 		return fmt.Errorf("read wal: %w", err)
 	}
 
-	for _, q := range queries {
-		_, err := e.exec(context.Background(), q)
+	for {
+		queries, err, ok := qStream.Next()
 		if err != nil {
-			e.lg.Error("execute failed", logger.Error(err))
-			return fmt.Errorf("execute query: %w", err)
+			e.log.Error("read wal failed", logger.Error(err))
+			return fmt.Errorf("read wal: %w", err)
 		}
+		if !ok {
+			break
+		}
+		for _, q := range queries {
+			_, err := e.exec(context.Background(), q)
+			if err != nil {
+				e.log.Error("execute failed", logger.Error(err))
+				return fmt.Errorf("execute query: %w", err)
+			}
+		}
+
 	}
+
+	e.log.Info("restoring from WAL finished")
 
 	return nil
 }

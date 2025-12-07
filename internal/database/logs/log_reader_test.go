@@ -1,4 +1,4 @@
-package wal
+package logs
 
 import (
 	"laguna/internal/mocks"
@@ -7,18 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"laguna/internal/config"
-
 	"github.com/stretchr/testify/assert"
 )
 
 func TestLogReader_Read(t *testing.T) {
 	dir := t.TempDir()
-
-	conf := config.WAL{
-		Directory:      dir,
-		MaxSegmentSize: 1024,
-	}
 
 	row1 := &Row{lsnID: 1, methodID: query.SetMethodID, args: []string{"user", "foo"}}
 	row2 := &Row{lsnID: 2, methodID: query.GetMethodID, args: []string{"user"}}
@@ -37,10 +30,10 @@ func TestLogReader_Read(t *testing.T) {
 		t.Fatalf("failed to write wal2: %v", err)
 	}
 
-	reader := NewLogReader(conf, &mocks.MockLogger{})
-	rows, err := reader.Read()
+	reader := NewLogReader(&mocks.MockLogger{})
+	rows, err := reader.ReadFromFiles(dir)
 	if err != nil {
-		t.Fatalf("read failed: %v", err)
+		t.Fatalf("readFrom failed: %v", err)
 	}
 
 	if len(rows) != 2 {

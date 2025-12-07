@@ -10,7 +10,7 @@ import (
 func TestEngine_SetGetDel(t *testing.T) {
 	ctx := context.Background()
 	lg := mocks.MockLogger{}
-	engine := NewEngine(&lg)
+	engine := NewEngine(&lg, 20)
 
 	err := engine.Set(ctx, "key1", "value1")
 	if err != nil {
@@ -47,9 +47,9 @@ func TestEngine_SetGetDel(t *testing.T) {
 }
 
 func TestInMemory_ConcurrentAccess(t *testing.T) {
-	mem := NewInMemory()
+	mem := NewInMemory(10)
 
-	const n = 100
+	const n = 1000000
 	done := make(chan struct{})
 
 	for i := 0; i < n; i++ {
@@ -83,7 +83,10 @@ func TestInMemory_ConcurrentAccess(t *testing.T) {
 		<-done
 	}
 
-	if len(mem.store) != 0 {
-		t.Errorf("expected store to be empty, got %d items", len(mem.store))
+	for _, sh := range mem.shards {
+		if len(sh.store) != 0 {
+			t.Errorf("expected store to be empty, got %d items", len(sh.store))
+		}
 	}
+
 }

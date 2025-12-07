@@ -4,25 +4,31 @@ import (
 	"context"
 	"errors"
 	"laguna/common/logger"
-	"laguna/utils"
+	"laguna/utils/ctx_utils"
 )
 
 var ErrNotFound = errors.New("not found")
+
+const defaultShards = 100
 
 type Engine struct {
 	im  *InMemory
 	log logger.Logger
 }
 
-func NewEngine(log logger.Logger) *Engine {
+func NewEngine(log logger.Logger, shards int64) *Engine {
+	if shards <= 0 {
+		shards = defaultShards
+	}
+
 	return &Engine{
-		im:  NewInMemory(),
+		im:  NewInMemory(shards),
 		log: log,
 	}
 }
 
 func (e *Engine) Set(ctx context.Context, key, value string) error {
-	txId := utils.GetTxInContext(ctx)
+	txId := ctx_utils.GetTxFromContext(ctx)
 
 	err := e.im.Set(key, value)
 	if err != nil {
@@ -34,7 +40,7 @@ func (e *Engine) Set(ctx context.Context, key, value string) error {
 }
 
 func (e *Engine) Get(ctx context.Context, key string) (string, error) {
-	txId := utils.GetTxInContext(ctx)
+	txId := ctx_utils.GetTxFromContext(ctx)
 	v, ok := e.im.Get(key)
 	if !ok {
 		return "", ErrNotFound
@@ -46,7 +52,7 @@ func (e *Engine) Get(ctx context.Context, key string) (string, error) {
 }
 
 func (e *Engine) Del(ctx context.Context, key string) error {
-	txId := utils.GetTxInContext(ctx)
+	txId := ctx_utils.GetTxFromContext(ctx)
 	err := e.im.Del(key)
 	if err != nil {
 		return err

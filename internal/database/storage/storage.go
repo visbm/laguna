@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"laguna/common/logger"
-	"laguna/internal/storage/engine/inmemory"
+	"laguna/internal/database/storage/engine/inmemory"
 )
 
 type Engine interface {
@@ -42,6 +42,7 @@ func (s *Storage) Get(ctx context.Context, key string) (string, error) {
 
 	return v, err
 }
+
 func (s *Storage) Set(ctx context.Context, key, value string) error {
 	if ctx.Err() != nil {
 		s.log.Error("context canceled")
@@ -50,6 +51,7 @@ func (s *Storage) Set(ctx context.Context, key, value string) error {
 
 	return s.en.Set(ctx, key, value)
 }
+
 func (s *Storage) Delete(ctx context.Context, key string) error {
 	if ctx.Err() != nil {
 		s.log.Error("context canceled")

@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"laguna/common/logger"
 	"os"
 	"strconv"
 	"time"
@@ -11,9 +12,11 @@ type FileSegment struct {
 	path    string
 	size    int64
 	maxSize int64
+
+	log logger.Logger
 }
 
-func NewFileSegment(path string, maxSize int64) (*FileSegment, error) {
+func NewFileSegment(log logger.Logger, path string, maxSize int64) (*FileSegment, error) {
 	file, err := initFileSegment(path)
 	if err != nil {
 		return nil, err
@@ -29,13 +32,15 @@ func NewFileSegment(path string, maxSize int64) (*FileSegment, error) {
 		path:    path,
 		size:    stat.Size(),
 		maxSize: maxSize,
+
+		log: log,
 	}, nil
 }
 
 func (f *FileSegment) Rotate() error {
 	err := f.file.Close()
 	if err != nil {
-		return err
+		f.log.Error("error closed file", logger.Error(err))
 	}
 
 	file, err := newFile(f.path)
@@ -100,4 +105,12 @@ func newFile(path string) (*os.File, error) {
 		return nil, err
 	}
 	return file, nil
+}
+
+func (f *FileSegment) GetName() string {
+	return f.file.Name()
+}
+
+func (f *FileSegment) CurrentOffset() int64 {
+	return f.size
 }

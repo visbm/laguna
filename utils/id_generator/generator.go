@@ -1,4 +1,4 @@
-package utils
+package id_generator
 
 import "sync/atomic"
 
@@ -18,4 +18,8 @@ func NewIDGeneratorWithStart(st uint64) *Generator {
 
 func (tx *Generator) NextID() uint64 {
 	return tx.id.Add(1)
+}
+
+func (tx *Generator) CurrValue() uint64 {
+	return tx.id.Load()
 }

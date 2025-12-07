@@ -22,6 +22,10 @@ func NewListener(log logger.Logger, hd handlers.Handler) *Listener {
 }
 
 func (l *Listener) Listen(ctx context.Context) {
+	go l.listen(ctx)
+}
+
+func (l *Listener) listen(ctx context.Context) {
 	l.log.Info("starting cli listener")
 	defer l.log.Info("stopped listener")
 

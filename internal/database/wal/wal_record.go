@@ -14,6 +14,26 @@ type Row struct {
 	args     []string
 }
 
+func NewRow(lsnID uint64, methodID query.MethodID, args []string) *Row {
+	return &Row{
+		lsnID:    lsnID,
+		methodID: methodID,
+		args:     args,
+	}
+}
+
+func (r *Row) GetLsnID() uint64 {
+	return r.lsnID
+}
+
+func (r *Row) GetMethodID() query.MethodID {
+	return r.methodID
+}
+
+func (r *Row) GetArgs() []string {
+	return r.args
+}
+
 // Marshal [8 bytes LSN] [1 byte methodID] [2 bytes argsCount] +
 // for each arg: [2 bytes len] [N bytes content]
 func (r *Row) Marshal() ([]byte, error) {

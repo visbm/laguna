@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"laguna/internal/config"
+	"laguna/internal/database/logs"
 	"laguna/internal/mocks"
 	"laguna/internal/query"
 	"reflect"
@@ -16,7 +17,7 @@ type MockWriterWithError struct {
 	fail bool
 }
 
-func (w *MockWriterWithError) Write(r []*Row) error {
+func (w *MockWriterWithError) Write(_ []*logs.Row) error {
 	if w.fail {
 		return errors.New("writeInSeg error")
 	}
@@ -24,11 +25,11 @@ func (w *MockWriterWithError) Write(r []*Row) error {
 }
 
 type mockReader struct {
-	val []*Row
+	val []*logs.Row
 	err error
 }
 
-func (m *mockReader) Read() ([]*Row, error) {
+func (m *mockReader) Read() ([]*logs.Row, error) {
 	return m.val, m.err
 }
 
@@ -40,6 +41,7 @@ func TestWALBasic(t *testing.T) {
 	defer cancel()
 
 	conf := config.WAL{
+		Enable:         true,
 		FlushBatchSize: 2,
 		FlushInterval:  10 * time.Millisecond,
 	}
@@ -94,6 +96,7 @@ func TestWALConcurrently(t *testing.T) {
 	defer cancel()
 
 	conf := config.WAL{
+		Enable:         true,
 		FlushBatchSize: 100,
 		FlushInterval:  10 * time.Millisecond,
 	}
@@ -152,6 +155,7 @@ func TestWALWriterError(t *testing.T) {
 	defer cancel()
 
 	conf := config.WAL{
+		Enable:         true,
 		FlushBatchSize: 2,
 		FlushInterval:  10 * time.Millisecond,
 	}
@@ -187,21 +191,22 @@ func TestReadWal_Success(t *testing.T) {
 	defer cancel()
 
 	conf := config.WAL{
+		Enable:         true,
 		FlushBatchSize: 2,
 		FlushInterval:  10 * time.Millisecond,
 	}
 
 	tests := []struct {
 		name    string
-		records []*Row
+		records []*logs.Row
 		want    []query.Query
 		wantErr bool
 	}{
 		{
 			name: "normal SET and DEL",
-			records: []*Row{
-				{lsnID: 42, methodID: query.SetMethodID, args: []string{"user", "1"}},
-				{lsnID: 99, methodID: query.DelMethodID, args: []string{"user"}},
+			records: []*logs.Row{
+				logs.NewRow(42, query.SetMethodID, []string{"user", "1"}),
+				logs.NewRow(99, query.DelMethodID, []string{"user"}),
 			},
 			want: []query.Query{
 				query.NewQuery(query.SetMethodID, []string{"user", "1"}),
@@ -211,8 +216,8 @@ func TestReadWal_Success(t *testing.T) {
 		},
 		{
 			name: "SET with multiple args",
-			records: []*Row{
-				{lsnID: 101, methodID: query.SetMethodID, args: []string{"config", "hello", "world", "!"}},
+			records: []*logs.Row{
+				logs.NewRow(101, query.SetMethodID, []string{"config", "hello", "world", "!"}),
 			},
 			want: []query.Query{
 				query.NewQuery(query.SetMethodID, []string{"config", "hello", "world", "!"}),
@@ -221,7 +226,7 @@ func TestReadWal_Success(t *testing.T) {
 		},
 		{
 			name:    "empty WAL",
-			records: []*Row{},
+			records: []*logs.Row{},
 			want:    []query.Query{},
 			wantErr: false,
 		},
@@ -233,10 +238,10 @@ func TestReadWal_Success(t *testing.T) {
 		},
 		{
 			name: "mixed SET, GET, DEL",
-			records: []*Row{
-				{lsnID: 200, methodID: query.SetMethodID, args: []string{"k1", "v1"}},
-				{lsnID: 201, methodID: query.GetMethodID, args: []string{"k1"}},
-				{lsnID: 202, methodID: query.DelMethodID, args: []string{"k1"}},
+			records: []*logs.Row{
+				logs.NewRow(200, query.SetMethodID, []string{"k1", "v1"}),
+				logs.NewRow(201, query.GetMethodID, []string{"k1"}),
+				logs.NewRow(202, query.DelMethodID, []string{"k1"}),
 			},
 			want: []query.Query{
 				query.NewQuery(query.SetMethodID, []string{"k1", "v1"}),
@@ -261,19 +266,19 @@ func TestReadWal_Success(t *testing.T) {
 			w := NewWAL(conf, &mocks.MockLogger{}, &MockWriterWithError{}, r)
 			go w.Start(ctx)
 
-			got, err := w.ReadWal()
+			got, err := w.Restore()
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("ReadWal() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("Restore() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			if !tt.wantErr {
 				if len(got) != len(tt.want) {
-					t.Fatalf("ReadWal() len = %d, want %d", len(got), len(tt.want))
+					t.Fatalf("Restore() len = %d, want %d", len(got), len(tt.want))
 				}
 
 				for i := range got {
 					if !reflect.DeepEqual(got[i], tt.want[i]) {
-						t.Fatalf("ReadWal() got[%d] = %v, want %v", i, got[i], tt.want[i])
+						t.Fatalf("Restore() got[%d] = %v, want %v", i, got[i], tt.want[i])
 					}
 				}
 			}
