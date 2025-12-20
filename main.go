@@ -39,7 +39,7 @@ func main() {
 	qb := query.NewBuilder()
 	handler := handlers.NewUniversalHandler(qb, db, log)
 
-	{ // todo delete
+	{ // additional cli listener
 		cliListener := cli.NewListener(log, handler)
 		cliListener.Listen(ctx)
 		cliListener.Close()

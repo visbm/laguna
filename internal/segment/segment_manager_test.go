@@ -1,6 +1,12 @@
 package segment
 
-/*
+import (
+	"laguna/internal/database/wal"
+	"laguna/internal/mocks"
+	"laguna/internal/query"
+	"laguna/utils/fs"
+	"testing"
+)
 
 func TestSegmentManager_Write(t *testing.T) {
 	tests := []struct {
@@ -51,9 +57,12 @@ func TestSegmentManager_Write(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
-			sm := NewSegmentManager(&mocks.MockLogger{}, seg)
+			im := NewIndexManagerMutex()
+			sm := NewSegmentManager(&mocks.MockLogger{}, im, seg)
 
 			err = sm.Write(tt.rows)
 			if (err != nil) != tt.wantErr {
@@ -109,9 +118,12 @@ func TestSegmentManager_processBatches(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
-			sm := NewSegmentManager(&mocks.MockLogger{}, seg)
+			im := NewIndexManagerMutex()
+			sm := NewSegmentManager(&mocks.MockLogger{}, im, seg)
 
 			err = sm.processBatches(tt.batch, tt.rows)
 			if (err != nil) != tt.wantErr {
@@ -119,7 +131,7 @@ func TestSegmentManager_processBatches(t *testing.T) {
 			}
 
 			if !tt.wantErr {
-				files, err := ReadDir(dir)
+				files, err := fs.ReadDir(dir)
 				if err != nil {
 					t.Fatalf("ReadDir() error = %v", err)
 				}
@@ -166,9 +178,12 @@ func TestSegmentManager_flatten(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
-			sm := NewSegmentManager(&mocks.MockLogger{}, seg)
+			im := NewIndexManagerMutex()
+			sm := NewSegmentManager(&mocks.MockLogger{}, im, seg)
 
 			result := sm.flatten(tt.batch, tt.bufSize)
 			if len(result) != tt.wantLen {
@@ -232,19 +247,22 @@ func TestSegmentManager_createButch(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
-			sm := NewSegmentManager(&mocks.MockLogger{}, seg)
+			im := NewIndexManagerMutex()
+			sm := NewSegmentManager(&mocks.MockLogger{}, im, seg)
 
-			batch, err := sm.createButch(tt.rows)
+			batch, err := sm.createBatch(tt.rows)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("createButch() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("createBatch() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if !tt.wantErr {
 				if len(batch) != tt.wantLen {
-					t.Errorf("createButch() len = %d, want %d", len(batch), tt.wantLen)
+					t.Errorf("createBatch() len = %d, want %d", len(batch), tt.wantLen)
 				}
 
 				for i, row := range tt.rows {
@@ -254,7 +272,7 @@ func TestSegmentManager_createButch(t *testing.T) {
 
 					expectedData, _ := row.Marshal()
 					if len(batch[i]) != len(expectedData) {
-						t.Errorf("createButch() batch[%d] len = %d, want %d", i, len(batch[i]), len(expectedData))
+						t.Errorf("createBatch() batch[%d] len = %d, want %d", i, len(batch[i]), len(expectedData))
 					}
 				}
 			}
@@ -303,9 +321,12 @@ func TestSegmentManager_writeBatch(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
-			sm := NewSegmentManager(&mocks.MockLogger{}, seg)
+			im := NewIndexManagerMutex()
+			sm := NewSegmentManager(&mocks.MockLogger{}, im, seg)
 
 			initialOffset := seg.CurrentOffset()
 			err = sm.writeBatch(tt.batch, tt.rows, tt.bufSize)
@@ -355,9 +376,12 @@ func TestSegmentManager_writeInSeg(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
-			sm := NewSegmentManager(&mocks.MockLogger{}, seg)
+			im := NewIndexManagerMutex()
+			sm := NewSegmentManager(&mocks.MockLogger{}, im, seg)
 
 			initialSize := seg.size
 			err = sm.writeInSeg(tt.batch)
@@ -383,9 +407,12 @@ func TestNewSegmentManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSegment() error = %v", err)
 	}
-	defer seg.Close()
+	defer func(seg *FileSegment) {
+		_ = seg.Close()
+	}(seg)
 
-	sm := NewSegmentManager(&mocks.MockLogger{}, seg)
+	im := NewIndexManagerMutex()
+	sm := NewSegmentManager(&mocks.MockLogger{}, im, seg)
 
 	if sm.curSeg != seg {
 		t.Error("NewSegmentManager() curSeg not set correctly")
@@ -402,9 +429,12 @@ func TestSegmentManager_Rotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSegment() error = %v", err)
 	}
-	defer seg.Close()
+	defer func(seg *FileSegment) {
+		_ = seg.Close()
+	}(seg)
 
-	sm := NewSegmentManager(&mocks.MockLogger{}, seg)
+	im := NewIndexManagerMutex()
+	sm := NewSegmentManager(&mocks.MockLogger{}, im, seg)
 
 	rows := []*wal.Row{
 		wal.NewRow(1, query.SetMethodID, []string{"key1", "very long value that will cause rotation"}),
@@ -417,7 +447,7 @@ func TestSegmentManager_Rotation(t *testing.T) {
 		t.Fatalf("Write() error = %v", err)
 	}
 
-	files, err := ReadDir(dir)
+	files, err := fs.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("ReadDir() error = %v", err)
 	}
@@ -426,4 +456,3 @@ func TestSegmentManager_Rotation(t *testing.T) {
 		t.Errorf("Write() created %d files, expected at least 2 due to rotation", len(files))
 	}
 }
-*/

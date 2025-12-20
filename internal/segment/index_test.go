@@ -1,6 +1,7 @@
 package segment
 
-/*
+import "testing"
+
 func TestIndexManagerMutex_Add(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -33,7 +34,7 @@ func TestIndexManagerMutex_Add(t *testing.T) {
 			im := NewIndexManagerMutex()
 			im.Add(tt.lsn, tt.fileName, tt.offset)
 
-			entry, err := im.Get(tt.lsn)
+			entry, err := im.GetIndex(tt.lsn)
 			if err != nil {
 				t.Fatalf("GetIndex() error = %v", err)
 			}
@@ -74,7 +75,7 @@ func TestIndexManagerMutex_Get(t *testing.T) {
 				im.Add(tt.lsn, "test.log", 100)
 			}
 
-			_, err := im.Get(tt.lsn)
+			_, err := im.GetIndex(tt.lsn)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetIndex() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -123,7 +124,7 @@ func TestIndexManagerMutex_AddBatch(t *testing.T) {
 			im.AddBatch(tt.entries)
 
 			for lsn, wantEntry := range tt.entries {
-				gotEntry, err := im.Get(lsn)
+				gotEntry, err := im.GetIndex(lsn)
 				if err != nil {
 					t.Errorf("GetIndex(%d) error = %v", lsn, err)
 					continue
@@ -145,7 +146,7 @@ func TestIndexManagerMutex_Overwrite(t *testing.T) {
 	im := NewIndexManagerMutex()
 	im.Add(1, "file1.log", 100)
 
-	entry, err := im.Get(1)
+	entry, err := im.GetIndex(1)
 	if err != nil {
 		t.Fatalf("GetIndex() error = %v", err)
 	}
@@ -156,7 +157,7 @@ func TestIndexManagerMutex_Overwrite(t *testing.T) {
 
 	im.Add(1, "file2.log", 200)
 
-	entry, err = im.Get(1)
+	entry, err = im.GetIndex(1)
 	if err != nil {
 		t.Fatalf("GetIndex() error = %v", err)
 	}
@@ -353,4 +354,3 @@ func TestIndexManagerCOW_AddThenBatch(t *testing.T) {
 		t.Errorf("GetIndex(2) FileName = %q, want %q", entry2.FileName, "file2.log")
 	}
 }
-*/

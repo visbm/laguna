@@ -30,7 +30,7 @@ func NewSegmentManager(log logger.Logger, im IndexManager, segment *FileSegment)
 }
 
 func (s *Manager) Write(rows []*wal.Row) error {
-	batch, err := s.createButch(rows)
+	batch, err := s.createBatch(rows)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (s *Manager) writeInSeg(batch []byte) error {
 	return nil
 }
 
-func (s *Manager) createButch(rows []*wal.Row) ([][]byte, error) {
+func (s *Manager) createBatch(rows []*wal.Row) ([][]byte, error) {
 	batch := make([][]byte, len(rows))
 
 	for i, row := range rows {

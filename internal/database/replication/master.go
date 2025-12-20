@@ -38,10 +38,17 @@ func (m *Master) setTransport(ls TCPLister) {
 }
 
 func (m *Master) Start(ctx context.Context) {
+	if m.ls == nil {
+		m.log.Error("TCPLister is nil, cannot start")
+		return
+	}
 	m.ls.Listen(ctx)
 }
 
 func (m *Master) Close() {
+	if m.ls == nil {
+		return
+	}
 	m.ls.Close()
 }
 
@@ -104,6 +111,7 @@ func (m *Master) Handle(ctx context.Context, r io.Reader, w io.Writer) error {
 	err = bufW.Flush()
 	if err != nil {
 		m.log.Error("failed to flush buffer", logger.Error(err))
+		return err
 	}
 
 	m.log.Info("Successfully sent logs to slave", logger.Integer("len", int64(len(rows))))

@@ -76,9 +76,6 @@ func ReadDirsFrom(path string, fileFrom string) ([]string, error) {
 	}
 
 	idx := binarySearch(dirs, fileFrom)
-	if idx >= len(dirs) {
-		return nil, nil
-	}
 
 	if idx == -1 {
 		return nil, nil

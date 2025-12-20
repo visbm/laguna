@@ -7,7 +7,6 @@ import (
 	"laguna/common/logger"
 	"laguna/internal/query"
 	"laguna/utils/concurrency"
-	"laguna/utils/id_generator"
 	"time"
 )
 
@@ -26,9 +25,8 @@ type WAL interface {
 }
 
 type Database struct {
-	log   logger.Logger
-	st    Storage
-	txGen *id_generator.Generator
+	log logger.Logger
+	st  Storage
 
 	wal WAL
 
@@ -39,7 +37,6 @@ func NewDatabase(st Storage, isMaster bool, wal WAL, log logger.Logger) (*Databa
 	db := &Database{
 		log:      log,
 		st:       st,
-		txGen:    id_generator.NewIDGenerator(),
 		wal:      wal,
 		isMaster: isMaster,
 	}
