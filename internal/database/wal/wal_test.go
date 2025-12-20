@@ -279,19 +279,35 @@ func TestReadWal_Success(t *testing.T) {
 			w := NewWAL(conf, &mocks.MockLogger{}, &MockWriterWithError{}, r)
 			go w.Start(ctx)
 
-			got, err := w.Restore()
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("Restore() error = %v, wantErr %v", err, tt.wantErr)
+			stream, err := w.RestoreStream()
+			if err != nil {
+				t.Fatalf("RestoreStream() error = %v", err)
+			}
+
+			var got []query.Query
+			for {
+				queries, err, ok := stream.Next()
+				if err != nil {
+					if tt.wantErr {
+						return
+					}
+					t.Fatalf("RestoreStream() error = %v, wantErr %v", err, tt.wantErr)
+					return
+				}
+				if !ok {
+					break
+				}
+				got = append(got, queries...)
 			}
 
 			if !tt.wantErr {
 				if len(got) != len(tt.want) {
-					t.Fatalf("Restore() len = %d, want %d", len(got), len(tt.want))
+					t.Fatalf("RestoreStream() len = %d, want %d", len(got), len(tt.want))
 				}
 
 				for i := range got {
 					if !reflect.DeepEqual(got[i], tt.want[i]) {
-						t.Fatalf("Restore() got[%d] = %v, want %v", i, got[i], tt.want[i])
+						t.Fatalf("RestoreStream() got[%d] = %v, want %v", i, got[i], tt.want[i])
 					}
 				}
 			}

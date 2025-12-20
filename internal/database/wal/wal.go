@@ -25,14 +25,11 @@ type Writer interface {
 }
 
 type Reader interface {
-	ReadFromFiles(directory string) ([]*Row, error)
 	RestoreSystemStream(directory string) concurrency.FutureRespWithErr[[]*Row]
 }
 
 type WAL struct {
 	enable bool
-
-	log logger.Logger
 
 	writer Writer
 	reader Reader
@@ -48,20 +45,22 @@ type WAL struct {
 	flushBatchSize int64              `yaml:"flush_batch_size"`
 	maxSegmentSize data_type.ByteSize `yaml:"max_segment_size"`
 	directory      string             `yaml:"directory"`
+
+	log logger.Logger
 }
 
 func NewWAL(c config.WAL, log logger.Logger, w Writer, r Reader) *WAL {
-	log.Info("initializing WAL")
 	if !c.Enable {
-		log.Info("disabling WAL")
+		log.Info("WAL disabled")
 		return &WAL{
 			enable: false,
 		}
 	}
 
+	log.Info("initializing WAL")
+
 	wal := &WAL{
 		enable: true,
-		log:    log,
 		m:      &sync.Mutex{},
 		writer: w,
 		reader: r,
@@ -71,6 +70,8 @@ func NewWAL(c config.WAL, log logger.Logger, w Writer, r Reader) *WAL {
 		maxSegmentSize: c.MaxSegmentSize,
 		directory:      c.Directory,
 		lsnGen:         id_generator.NewIDGenerator(),
+
+		log: log,
 	}
 
 	if wal.flushInterval == 0 {
@@ -93,14 +94,15 @@ func NewWAL(c config.WAL, log logger.Logger, w Writer, r Reader) *WAL {
 	return wal
 }
 
-func (w *WAL) IsEnable() bool {
-	return w.enable
-}
 func (w *WAL) Start(ctx context.Context) {
 	if !w.enable {
 		return
 	}
 	go w.startInfileWALWorker(ctx)
+}
+
+func (w *WAL) IsEnable() bool {
+	return w.enable
 }
 
 func (w *WAL) Write(ctx context.Context, q query.Query) (concurrency.FutureResp[error], error) {
@@ -223,7 +225,6 @@ func (w *WAL) flush() {
 	if err != nil {
 		w.log.Error("failed to flush WAL files", logger.Error(err))
 	} else {
-
 		w.log.Info("successfully flushed WAL files")
 		w.queryBuf = w.queryBuf[:0]
 	}

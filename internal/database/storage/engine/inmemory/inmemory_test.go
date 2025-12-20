@@ -19,7 +19,7 @@ func TestEngine_SetGetDel(t *testing.T) {
 
 	val, err := engine.Get(ctx, "key1")
 	if err != nil {
-		t.Fatalf("Get failed: %v", err)
+		t.Fatalf("GetIndex failed: %v", err)
 	}
 	if val != "value1" {
 		t.Errorf("expected value1, got %s", val)

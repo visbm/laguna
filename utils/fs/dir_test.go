@@ -29,7 +29,7 @@ func TestReadDir(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					file.Close()
+					_ = file.Close()
 				}
 				return nil
 			},
@@ -37,11 +37,11 @@ func TestReadDir(t *testing.T) {
 			wantLen: 3,
 		},
 		{
-			name: "read non-existent directory",
+			name: "create non-existent directory automatically",
 			setup: func(dir string) error {
 				return nil
 			},
-			wantErr: true,
+			wantErr: false,
 			wantLen: 0,
 		},
 	}
@@ -49,7 +49,7 @@ func TestReadDir(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if tt.name == "read non-existent directory" {
+			if tt.name == "create non-existent directory automatically" {
 				dir = filepath.Join(dir, "nonexistent")
 			} else {
 				if err := tt.setup(dir); err != nil {
@@ -100,7 +100,7 @@ func TestOpenFile(t *testing.T) {
 				if err != nil {
 					return "", err
 				}
-				file.Close()
+				_ = file.Close()
 				return path, nil
 			},
 			wantErr: false,
@@ -126,7 +126,7 @@ func TestOpenFile(t *testing.T) {
 					t.Error("OpenFile() returned nil file")
 					return
 				}
-				file.Close()
+				_ = file.Close()
 
 				if _, err := os.Stat(filePath); err != nil {
 					t.Errorf("OpenFile() file does not exist: %v", err)
@@ -148,14 +148,14 @@ func TestReadDirsForm(t *testing.T) {
 		{
 			name:    "empty directory",
 			files:   []string{},
-			target:  "file",
+			target:  "file.log",
 			wantLen: 0,
 			wantErr: false,
 		},
 		{
 			name:      "all files after target",
 			files:     []string{"file1.log", "file2.log", "file3.log"},
-			target:    "file1",
+			target:    "file1.log",
 			wantLen:   3,
 			wantErr:   false,
 			wantFirst: "file1.log",
@@ -171,14 +171,14 @@ func TestReadDirsForm(t *testing.T) {
 		{
 			name:    "target at end",
 			files:   []string{"file1.log", "file2.log", "file3.log"},
-			target:  "file3",
+			target:  "file3.log",
 			wantLen: 1,
 			wantErr: false,
 		},
 		{
 			name:      "target in middle",
 			files:     []string{"a.log", "b.log", "c.log", "d.log"},
-			target:    "b",
+			target:    "b.log",
 			wantLen:   3,
 			wantErr:   false,
 			wantFirst: "b.log",
@@ -194,7 +194,7 @@ func TestReadDirsForm(t *testing.T) {
 				if err != nil {
 					t.Fatalf("failed to create file: %v", err)
 				}
-				file.Close()
+				_ = file.Close()
 			}
 
 			result, err := ReadDirsFrom(dir, tt.target)
@@ -217,7 +217,7 @@ func TestReadDirsForm(t *testing.T) {
 	}
 }
 
-func TestUpperBound(t *testing.T) {
+func TestBinarySearch(t *testing.T) {
 	tests := []struct {
 		name   string
 		array  []string
@@ -228,57 +228,57 @@ func TestUpperBound(t *testing.T) {
 			name:   "empty array",
 			array:  []string{},
 			target: "b",
-			want:   0,
+			want:   -1,
 		},
 		{
 			name:   "target before all",
 			array:  []string{"c", "d", "e"},
 			target: "a",
-			want:   0,
+			want:   -1,
 		},
 		{
 			name:   "target after all",
 			array:  []string{"a", "b", "c"},
 			target: "d",
-			want:   3,
+			want:   -1,
 		},
 		{
 			name:   "target in middle",
 			array:  []string{"a", "b", "c", "d", "e"},
 			target: "c",
-			want:   3,
+			want:   2,
 		},
 		{
 			name:   "target at beginning",
 			array:  []string{"a", "b", "c"},
 			target: "a",
-			want:   1,
+			want:   0,
 		},
 		{
 			name:   "target at end",
 			array:  []string{"a", "b", "c"},
 			target: "c",
-			want:   3,
+			want:   2,
 		},
 		{
 			name:   "single element before",
 			array:  []string{"b"},
 			target: "a",
-			want:   0,
+			want:   -1,
 		},
 		{
 			name:   "single element after",
 			array:  []string{"a"},
 			target: "b",
-			want:   1,
+			want:   -1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := upperBound(tt.array, tt.target)
+			got := binarySearch(tt.array, tt.target)
 			if got != tt.want {
-				t.Errorf("upperBound() = %d, want %d", got, tt.want)
+				t.Errorf("binarySearch() = %d, want %d", got, tt.want)
 			}
 		})
 	}

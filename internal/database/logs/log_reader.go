@@ -6,30 +6,30 @@ import (
 	"io"
 	"laguna/common/logger"
 	"laguna/internal/database/wal"
-	"laguna/internal/fs"
+	"laguna/internal/segment"
 	"laguna/utils/concurrency"
+	"laguna/utils/fs"
 )
 
 type SegmentManager interface {
-	ReadrSegment(name string) ([]byte, error)
-	AddBatchIndex(entries map[uint64]fs.IndexEntry)
+	ReadSegment(name string) ([]byte, error)
+	AddBatchIndex(entries map[uint64]segment.IndexEntry)
 }
 
 type LogReader struct {
-	log logger.Logger
 	sm  SegmentManager
+	log logger.Logger
 }
 
 func NewLogReader(sm SegmentManager, log logger.Logger) *LogReader {
 	return &LogReader{
-		log: log,
 		sm:  sm,
+		log: log,
 	}
 }
 
 // ReadFrom  reads first file from offset
 func (lr *LogReader) ReadFrom(directory string, target string, firstOffset int64) ([]*wal.Row, error) {
-
 	var results []*wal.Row
 
 	names, err := fs.ReadDirsFrom(directory, target)
@@ -48,7 +48,7 @@ func (lr *LogReader) ReadFrom(directory string, target string, firstOffset int64
 			offset = firstOffset
 		}
 
-		data, err := lr.sm.ReadrSegment(directory + "/" + name)
+		data, err := lr.sm.ReadSegment(directory + "/" + name)
 		if err != nil {
 			lr.log.Error("error open file", logger.Error(err))
 			return nil, err
@@ -65,24 +65,6 @@ func (lr *LogReader) ReadFrom(directory string, target string, firstOffset int64
 	}
 
 	return results, nil
-}
-
-func (lr *LogReader) ReadFromFiles(directory string) ([]*wal.Row, error) {
-	names, err := fs.ReadDir(directory)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(names) == 0 {
-		return nil, nil
-	}
-
-	resp, err := lr.readFiles(directory, names)
-	if err != nil {
-		return nil, err
-	}
-
-	return resp, nil
 }
 
 func (lr *LogReader) RestoreSystemStream(directory string) concurrency.FutureRespWithErr[[]*wal.Row] {
@@ -109,7 +91,7 @@ func (lr *LogReader) RestoreSystemStream(directory string) concurrency.FutureRes
 				return
 			}
 
-			data, err := lr.Read(file)
+			data, err := lr.read(file)
 			if err != nil {
 				resp.Put(nil, err)
 				return
@@ -130,32 +112,7 @@ func (lr *LogReader) RestoreSystemStream(directory string) concurrency.FutureRes
 	return resp
 }
 
-func (lr *LogReader) readFiles(mainDir string, names []string) ([]*wal.Row, error) {
-	resp := make([]*wal.Row, 0, len(names))
-	for _, fileName := range names {
-
-		file, err := fs.OpenFile(mainDir + "/" + fileName)
-		if err != nil {
-			return nil, err
-		}
-
-		data, err := lr.Read(file)
-		if err != nil {
-			return nil, err
-		}
-
-		resp = append(resp, data...)
-
-		err = file.Close()
-		if err != nil {
-			lr.log.Error("non fatal error closing file", logger.Error(err))
-		}
-	}
-	return resp, nil
-}
-
 func (lr *LogReader) readFromOffset(r io.ReadSeeker, offset int64) ([]*wal.Row, error) {
-
 	_, err := r.Seek(offset, io.SeekStart)
 	if err != nil {
 		return nil, err
@@ -168,10 +125,29 @@ func (lr *LogReader) Read(r io.Reader) ([]*wal.Row, error) {
 	return lr.read(r)
 }
 
+func (lr *LogReader) ReadStream(r io.Reader) concurrency.FutureRespWithErr[[]*wal.Row] {
+	resp := concurrency.NewFutureRespWithErr[[]*wal.Row]()
+
+	go func() {
+		defer resp.Done()
+
+		rows, err := lr.read(r)
+		if err != nil {
+			resp.Put(nil, err)
+			return
+		}
+
+		resp.Put(rows, nil)
+	}()
+
+	return resp
+}
+
 func (lr *LogReader) read(r io.Reader) ([]*wal.Row, error) {
-	var result []*wal.Row
+	rows := make([]*wal.Row, 0)
 	buf := make([]byte, 4096)
 	var leftover []byte
+
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
@@ -180,19 +156,21 @@ func (lr *LogReader) read(r io.Reader) ([]*wal.Row, error) {
 
 			for offset < len(leftover) {
 				row := &wal.Row{}
-				readBytes, err := row.Unmarshal(leftover[offset:])
-				if err != nil {
-					if err == io.EOF {
+				readBytes, uErr := row.Unmarshal(leftover[offset:])
+				if uErr != nil {
+					if uErr == io.EOF {
 						break
 					}
+
 					lr.log.Warn("skipping corrupted row",
 						logger.Integer("offset", int64(offset)),
-						logger.Error(err),
+						logger.Error(uErr),
 					)
 					offset++
 					continue
 				}
-				result = append(result, row)
+
+				rows = append(rows, row)
 				offset += readBytes
 			}
 
@@ -202,8 +180,9 @@ func (lr *LogReader) read(r io.Reader) ([]*wal.Row, error) {
 		if err == io.EOF {
 			break
 		}
+
 		if err != nil {
-			return nil, fmt.Errorf("readFrom error: %w", err)
+			return rows, fmt.Errorf("parseRows read error: %w", err)
 		}
 	}
 
@@ -219,66 +198,19 @@ func (lr *LogReader) read(r io.Reader) ([]*wal.Row, error) {
 				)
 				break
 			}
-			result = append(result, r)
+
+			rows = append(rows, r)
 			offset += readBytes
 		}
 	}
 
-	return result, nil
-}
-
-func (lr *LogReader) ReadStream(r io.Reader) concurrency.FutureRespWithErr[[]*wal.Row] {
-	resp := concurrency.NewFutureRespWithErr[[]*wal.Row]()
-
-	go func() {
-		rows := make([]*wal.Row, 0)
-
-		defer resp.Done()
-
-		buf := make([]byte, 4096)
-		var leftover []byte
-		for {
-			n, err := r.Read(buf)
-			if n > 0 {
-				leftover = append(leftover, buf[:n]...)
-				offset := 0
-				for offset < len(leftover) {
-					row := &wal.Row{}
-					readBytes, err := row.Unmarshal(leftover[offset:])
-					if err != nil {
-						if err == io.EOF {
-							break
-						}
-						lr.log.Warn("skipping corrupted row",
-							logger.Integer("offset", int64(offset)),
-							logger.Error(err),
-						)
-						offset++
-						continue
-					}
-					rows = append(rows, row)
-					offset += readBytes
-				}
-				leftover = leftover[offset:]
-			}
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				lr.log.Error("read error", logger.Error(err))
-				resp.Put(rows, err)
-				return
-			}
-		}
-		resp.Put(rows, nil)
-	}()
-	return resp
+	return rows, nil
 }
 
 func (lr *LogReader) restoreIndex(rows []*wal.Row, fileName string) {
 	offset := 0
 
-	entries := make(map[uint64]fs.IndexEntry, len(rows))
+	entries := make(map[uint64]segment.IndexEntry, len(rows))
 	for _, row := range rows {
 		b, err := row.Marshal()
 		if err != nil {
@@ -286,9 +218,8 @@ func (lr *LogReader) restoreIndex(rows []*wal.Row, fileName string) {
 			continue
 		}
 
-		entries[row.GetLsnID()] = fs.IndexEntry{FileName: fileName, Offset: int64(offset)}
+		entries[row.GetLsnID()] = segment.IndexEntry{FileName: fileName, Offset: int64(offset)}
 		offset += len(b)
 	}
 	lr.sm.AddBatchIndex(entries)
-	return
 }

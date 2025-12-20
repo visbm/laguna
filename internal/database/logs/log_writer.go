@@ -11,19 +11,14 @@ type Target interface {
 }
 
 type LogWriter struct {
-	log    logger.Logger
 	target Target
+	log    logger.Logger
 }
 
-func NewLogWriterWithTarget(log logger.Logger, t Target) *LogWriter {
+func NewLogWriter(log logger.Logger, t Target) *LogWriter {
 	return &LogWriter{
 		target: t,
 		log:    log,
-	}
-}
-func NewLogWriter(log logger.Logger) *LogWriter {
-	return &LogWriter{
-		log: log,
 	}
 }
 

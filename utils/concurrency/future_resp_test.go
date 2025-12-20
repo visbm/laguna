@@ -100,8 +100,7 @@ func TestFutureRespWithErr_Next(t *testing.T) {
 		t.Fatalf("expected empty', got %s", v)
 	}
 
-	// второй вызов
-	v, err, ok = f.Next()
+	_, err, ok = f.Next()
 	if ok {
 		t.Fatalf("expected ok=false")
 	}
@@ -109,7 +108,6 @@ func TestFutureRespWithErr_Next(t *testing.T) {
 		t.Fatalf("expected error, got nil")
 	}
 
-	// третий вызов — каналы закрыты
 	_, _, ok = f.Next()
 	if ok {
 		t.Fatalf("expected ok=false after Done")

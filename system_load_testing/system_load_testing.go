@@ -13,7 +13,7 @@ import (
 var (
 	rps      = flag.Int("rps", 1000, "commands per second")
 	address  = flag.String("address", "localhost:8080", "http service address")
-	duration = flag.Duration("duration", 30*time.Second, "test duration")
+	duration = flag.Duration("duration", 600*time.Second, "test duration")
 )
 
 var commands = []string{
@@ -48,7 +48,7 @@ func main() {
 
 	defer func() {
 		for _, conn := range conns {
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 

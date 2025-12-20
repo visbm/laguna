@@ -37,7 +37,12 @@ func (r *Row) GetArgs() []string {
 // Marshal [8 bytes LSN] [1 byte methodID] [2 bytes argsCount] +
 // for each arg: [2 bytes len] [N bytes content]
 func (r *Row) Marshal() ([]byte, error) {
-	buf := new(bytes.Buffer)
+	expectedSize := 8 + 1 + 2
+	for _, a := range r.args {
+		expectedSize += 2 + len(a)
+	}
+
+	buf := bytes.NewBuffer(make([]byte, 0, expectedSize))
 
 	if err := binary.Write(buf, binary.BigEndian, r.lsnID); err != nil {
 		return nil, err

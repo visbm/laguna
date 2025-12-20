@@ -1,6 +1,5 @@
 package replication
 
-/*
 import (
 	"bytes"
 	"context"
@@ -20,8 +19,15 @@ type mockTCPClient struct {
 	sendErr  error
 }
 
-func (m *mockTCPClient) Send(ctx context.Context, req []byte) ([]byte, error) {
-	return m.sendResp, m.sendErr
+func (m *mockTCPClient) Send(ctx context.Context, req []byte) (io.Reader, error) {
+	if m.sendErr != nil {
+		return nil, m.sendErr
+	}
+	return bytes.NewReader(m.sendResp), nil
+}
+
+func (m *mockTCPClient) Close() {
+	// Mock implementation, no-op
 }
 
 type mockStorage struct {
@@ -55,7 +61,7 @@ func (m *mockSlaveLogReader) ReadStream(r io.Reader) concurrency.FutureRespWithE
 	return m.readStreamResp
 }
 
-func (m *mockSlaveLogReader) ReadFromFileAndNext(directory string, target string) ([]*wal.Row, error) {
+func (m *mockSlaveLogReader) ReadFrom(directory string, target string, firstOffset int64) ([]*wal.Row, error) {
 	return nil, nil
 }
 
@@ -107,6 +113,15 @@ func TestSlave_sendReq(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:  "response with ErrNoNewLogs",
+			lsnID: 1000,
+			client: &mockTCPClient{
+				sendResp: createErrorResponse(ErrNoNewLogs),
+				sendErr:  nil,
+			},
+			wantErr: true,
+		},
+		{
 			name:  "unmarshal error",
 			lsnID: 999,
 			client: &mockTCPClient{
@@ -134,6 +149,14 @@ func TestSlave_sendReq(t *testing.T) {
 
 			if !tt.wantErr && resp.Data == nil {
 				t.Error("sendReq() expected response data, got nil")
+			}
+
+			if tt.name == "response with ErrNoNewLogs" {
+				if err == nil {
+					t.Error("sendReq() should return ErrNoNewLogs error")
+				} else if !errors.Is(err, ErrNoNewLogs) {
+					t.Errorf("sendReq() error should be ErrNoNewLogs, got %v", err)
+				}
 			}
 		})
 	}
@@ -413,11 +436,11 @@ func TestNewSlave(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			slave := NewSlave(
+				&mocks.MockLogger{},
 				&mockTCPClient{},
 				&mockSlaveLogReader{},
 				&mockStorage{},
 				tt.syncInterval,
-				&mocks.MockLogger{},
 			)
 
 			if slave.syncInterval != tt.wantInterval {
@@ -448,12 +471,12 @@ func TestNewSlaveWithWal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			slave := NewSlaveWithWal(
+				&mocks.MockLogger{},
 				&mockTCPClient{},
 				&mockSlaveLogReader{},
 				&mockSlaveLogWriter{},
 				&mockStorage{},
 				tt.syncInterval,
-				&mocks.MockLogger{},
 			)
 
 			if slave.syncInterval != tt.wantInterval {
@@ -501,13 +524,13 @@ func TestSlave_walEnable(t *testing.T) {
 
 func createSuccessResponse(data []byte) []byte {
 	resp := &Response{Data: data, Err: nil}
-	result, _ := resp.Marshal()
+	result, _ := resp.WriteMessage()
 	return result
 }
 
 func createErrorResponse(err error) []byte {
 	resp := &Response{Data: nil, Err: err}
-	result, _ := resp.Marshal()
+	result, _ := resp.WriteMessage()
 	return result
 }
 
@@ -527,4 +550,4 @@ func createMockStream(rows []*wal.Row) concurrency.FutureRespWithErr[[]*wal.Row]
 		resp.Put(rows, nil)
 	}()
 	return resp
-}*/
+}

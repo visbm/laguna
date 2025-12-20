@@ -9,6 +9,8 @@ import (
 	"laguna/internal/database/wal"
 )
 
+var ErrNoNewLogs = errors.New("no new logs")
+
 type ConnTarget struct {
 	conn io.Writer
 }
@@ -40,8 +42,9 @@ func (ct *ConnTarget) Write(rows []*wal.Row) error {
 }
 
 func flatten(rows []*wal.Row) ([]byte, error) {
+	const approxBytesInRow = 8 + 8 + 8
 
-	buf := make([]byte, 0)
+	buf := make([]byte, 0, len(rows)*approxBytesInRow)
 	for _, r := range rows {
 		b, err := r.Marshal()
 		if err != nil {

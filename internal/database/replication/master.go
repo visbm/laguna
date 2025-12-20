@@ -6,32 +6,43 @@ import (
 	"errors"
 	"io"
 	"laguna/common/logger"
-	"laguna/internal/fs"
+	"laguna/internal/segment"
 	"laguna/utils/retry"
 	"time"
 )
-
-type SegmentManager interface {
-	GetIndex(lsn uint64) (fs.IndexEntry, error)
-}
 
 type Master struct {
 	lR     LogReader
 	lW     LogWriter
 	im     SegmentManager
+	ls     TCPLister
 	walDir string
 
 	log logger.Logger
 }
 
-func NewMaster(lR LogReader, lW LogWriter, im SegmentManager, log logger.Logger, walDir string) *Master {
+func NewMaster(log logger.Logger, lR LogReader, lW LogWriter, sm SegmentManager, walDir string) *Master {
 	return &Master{
-		lR:     lR,
-		lW:     lW,
-		log:    log,
-		im:     im,
+		lR: lR,
+		lW: lW,
+		im: sm,
+
 		walDir: walDir,
+
+		log: log,
 	}
+}
+
+func (m *Master) setTransport(ls TCPLister) {
+	m.ls = ls
+}
+
+func (m *Master) Start(ctx context.Context) {
+	m.ls.Listen(ctx)
+}
+
+func (m *Master) Close() {
+	m.ls.Close()
 }
 
 func (m *Master) Handle(ctx context.Context, r io.Reader, w io.Writer) error {
@@ -43,17 +54,8 @@ func (m *Master) Handle(ctx context.Context, r io.Reader, w io.Writer) error {
 	bufR := bufio.NewReader(r)
 	bufW := bufio.NewWriter(w)
 
-	data := make([]byte, reqSize)
-	n, err := bufR.Read(data)
+	req, err := m.getReq(bufR)
 	if err != nil {
-		m.log.Error("failed to read input", logger.Error(err))
-		return m.writeError(err, bufW)
-	}
-
-	req := &Request{}
-	err = req.Unmarshal(data[:n])
-	if err != nil {
-		m.log.Error("failed to unmarshal request", logger.Error(err))
 		return m.writeError(err, bufW)
 	}
 
@@ -62,7 +64,7 @@ func (m *Master) Handle(ctx context.Context, r io.Reader, w io.Writer) error {
 		return m.writeError(errors.New("lsnID is 0"), bufW)
 	}
 
-	index, err := retry.WithRetryValue(ctx, 3, 200*time.Millisecond, func() (fs.IndexEntry, error) {
+	index, err := retry.WithRetryValue(ctx, 3, 200*time.Millisecond, func() (segment.IndexEntry, error) {
 		index, errInd := m.im.GetIndex(req.LsnID)
 		if errInd != nil {
 			return index, errInd
@@ -72,10 +74,11 @@ func (m *Master) Handle(ctx context.Context, r io.Reader, w io.Writer) error {
 	})
 
 	if err != nil {
-		if errors.Is(err, fs.ErrNotFound) {
+		if errors.Is(err, segment.ErrNotFound) {
 			m.log.Info("index not found", logger.Integer("lsnID", int64(req.LsnID)))
-			return m.writeError(err, bufW)
+			return m.writeError(ErrNoNewLogs, bufW)
 		}
+
 		m.log.Error("failed to fetch index", logger.Error(err))
 		return m.writeError(err, bufW)
 	}
@@ -86,6 +89,10 @@ func (m *Master) Handle(ctx context.Context, r io.Reader, w io.Writer) error {
 		return m.writeError(err, bufW)
 	}
 
+	if len(rows) == 0 {
+		return m.writeError(ErrNoNewLogs, bufW)
+	}
+
 	conTg := NewConnTarget(bufW)
 
 	err = m.lW.WriteTo(rows, conTg)
@@ -93,6 +100,7 @@ func (m *Master) Handle(ctx context.Context, r io.Reader, w io.Writer) error {
 		m.log.Error("failed to write rows", logger.Error(err))
 		return err
 	}
+
 	err = bufW.Flush()
 	if err != nil {
 		m.log.Error("failed to flush buffer", logger.Error(err))
@@ -101,6 +109,24 @@ func (m *Master) Handle(ctx context.Context, r io.Reader, w io.Writer) error {
 	m.log.Info("Successfully sent logs to slave", logger.Integer("len", int64(len(rows))))
 
 	return nil
+}
+
+func (m *Master) getReq(bufR *bufio.Reader) (*Request, error) {
+	data := make([]byte, reqSize)
+	n, err := bufR.Read(data)
+	if err != nil {
+		m.log.Error("failed to read input", logger.Error(err))
+		return nil, err
+	}
+
+	req := &Request{}
+	err = req.Unmarshal(data[:n])
+	if err != nil {
+		m.log.Error("failed to unmarshal request", logger.Error(err))
+		return nil, err
+	}
+
+	return req, err
 }
 
 func (m *Master) writeError(err error, bufW *bufio.Writer) error {

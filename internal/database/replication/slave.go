@@ -3,6 +3,7 @@ package replication
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"laguna/common/logger"
 	"laguna/internal/database/wal"
@@ -30,17 +31,18 @@ type Slave struct {
 }
 
 const (
-	defaultSyncInterval = 1 * time.Second
+	defaultSyncInterval     = 1 * time.Second
+	defaultSleepOnNoNewLogs = 3 * time.Second
 )
 
-func NewSlaveWithWal(cl TCPClient, lr LogReader, lw LogWriter, st Storage, syncInterval time.Duration, lg logger.Logger) *Slave {
+func NewSlaveWithWal(log logger.Logger, cl TCPClient, lr LogReader, lw LogWriter, st Storage, syncInterval time.Duration) *Slave {
 	s := &Slave{cl: cl,
 		syncInterval: syncInterval,
-		log:          lg,
 		logReader:    lr,
 		logWriter:    lw,
+		st:           st,
 
-		st: st,
+		log: log,
 	}
 
 	if s.syncInterval == 0 {
@@ -50,13 +52,13 @@ func NewSlaveWithWal(cl TCPClient, lr LogReader, lw LogWriter, st Storage, syncI
 	return s
 }
 
-func NewSlave(cl TCPClient, lr LogReader, st Storage, syncInterval time.Duration, lg logger.Logger) *Slave {
+func NewSlave(log logger.Logger, cl TCPClient, lr LogReader, st Storage, syncInterval time.Duration) *Slave {
 	s := &Slave{cl: cl,
 		syncInterval: syncInterval,
-		log:          lg,
 		logReader:    lr,
+		st:           st,
 
-		st: st,
+		log: log,
 	}
 
 	if s.syncInterval == 0 {
@@ -84,7 +86,10 @@ func (s *Slave) startReplication(ctx context.Context) {
 			s.log.Error("context deadline exceeded", logger.Error(ctx.Err()))
 			return
 		case <-time.After(s.syncInterval):
-			_ = s.getUpdates(ctx)
+			err := s.getUpdates(ctx)
+			if errors.Is(err, ErrNoNewLogs) {
+				time.Sleep(defaultSleepOnNoNewLogs)
+			}
 		}
 	}
 }
@@ -106,6 +111,7 @@ func (s *Slave) getUpdates(ctx context.Context) error {
 	}
 
 	s.log.Info("replication get logs", logger.Integer("len", int64(len(resp.Data))))
+
 	rowsStream := s.logReader.ReadStream(bytes.NewReader(resp.Data))
 
 	for {
@@ -163,18 +169,18 @@ func (s *Slave) execStorage(ctx context.Context, rows []*wal.Row) error {
 		args := r.GetArgs()
 		method := r.GetMethodID()
 
+		var err error
 		switch method {
-
 		case query.SetMethodID:
-			err := s.st.Set(ctx, args[query.SetKeyIdx], args[query.SetValueIdx])
-			return err
-
+			err = s.st.Set(ctx, args[query.SetKeyIdx], args[query.SetValueIdx])
 		case query.DelMethodID:
-			err := s.st.Delete(ctx, args[query.DelKeyIdx])
-			return err
-
+			err = s.st.Delete(ctx, args[query.DelKeyIdx])
 		default:
 			return fmt.Errorf("unknown command ID: %d", method)
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to execute method %d: %w", method, err)
 		}
 	}
 	return nil
@@ -186,8 +192,6 @@ func (s *Slave) sendReq(ctx context.Context, lsnID uint64) (*Response, error) {
 		return nil, ctx.Err()
 	}
 
-	var resp *Response
-
 	req := Request{
 		LsnID: lsnID,
 	}
@@ -195,22 +199,27 @@ func (s *Slave) sendReq(ctx context.Context, lsnID uint64) (*Response, error) {
 	body, err := req.Marshal()
 	if err != nil {
 		s.log.Error("marshal request failed", logger.Error(err))
-		return resp, err
+		return nil, err
 	}
 
 	r, err := s.cl.Send(ctx, body)
 	if err != nil {
 		s.log.Error("send request failed", logger.Error(err))
-		return resp, err
+		return nil, err
 	}
 
-	resp, err = ReadMessage(r)
+	resp, err := ReadMessage(r)
 	if err != nil {
 		s.log.Error("unmarshal response failed", logger.Error(err))
-		return resp, err
+		return nil, err
 	}
 
 	if resp.Err != nil {
+		if resp.Err.Error() == ErrNoNewLogs.Error() {
+			s.log.Info("no new logs for", logger.Integer("lsn id", int64(lsnID)))
+			return resp, ErrNoNewLogs
+		}
+
 		s.log.Error("response failed with", logger.Integer("lsn ID", int64(lsnID)), logger.Error(resp.Err))
 		return resp, resp.Err
 	}
@@ -220,4 +229,8 @@ func (s *Slave) sendReq(ctx context.Context, lsnID uint64) (*Response, error) {
 
 func (s *Slave) walEnable() bool {
 	return s.logWriter != nil
+}
+
+func (s *Slave) Close() {
+	s.cl.Close()
 }

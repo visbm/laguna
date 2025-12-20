@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"laguna/internal/config"
 	"laguna/internal/database/wal"
-	"laguna/internal/fs"
 	"laguna/internal/mocks"
 	"laguna/internal/query"
+	"laguna/internal/segment"
 	"laguna/utils/data_type"
 	"os"
 	"path/filepath"
@@ -24,14 +24,15 @@ func TestLogWriter_Write_basicBatches(t *testing.T) {
 		MaxSegmentSize: 1024,
 	}
 
-	seg, err := fs.NewFileSegment(mockLg, conf.Directory, conf.MaxSegmentSize.Int64())
+	seg, err := segment.NewFileSegment(mockLg, conf.Directory, conf.MaxSegmentSize.Int64())
 	if err != nil {
 		t.Fatalf("NewFileSegment failed: %v", err)
 	}
 
-	sm := fs.NewSegmentManager(mockLg, seg)
+	im := segment.NewIndexManagerMutex()
+	sm := segment.NewSegmentManager(mockLg, im, seg)
 
-	lw := NewLogWriterWithTarget(mockLg, sm)
+	lw := NewLogWriter(mockLg, sm)
 
 	batch := []*wal.Row{
 		wal.NewRow(1, query.GetMethodID, []string{"user"}),
@@ -68,14 +69,15 @@ func TestLogWriter_Write_manyBatches_segmentRotation(t *testing.T) {
 		MaxSegmentSize: maxSegmentSize,
 	}
 
-	seg, err := fs.NewFileSegment(mockLg, conf.Directory, conf.MaxSegmentSize.Int64())
+	seg, err := segment.NewFileSegment(mockLg, conf.Directory, conf.MaxSegmentSize.Int64())
 	if err != nil {
 		t.Fatalf("NewFileSegment failed: %v", err)
 	}
 
-	sm := fs.NewSegmentManager(mockLg, seg)
+	im := segment.NewIndexManagerMutex()
+	sm := segment.NewSegmentManager(mockLg, im, seg)
 
-	lw := NewLogWriterWithTarget(mockLg, sm)
+	lw := NewLogWriter(mockLg, sm)
 
 	rows := []*wal.Row{
 		wal.NewRow(1, query.SetMethodID, []string{"a", "1"}),
@@ -120,14 +122,15 @@ func TestLogWriter_Write_oversizedEntry(t *testing.T) {
 		MaxSegmentSize: data_type.ByteSize(maxSegmentSize),
 	}
 
-	seg, err := fs.NewFileSegment(mockLg, conf.Directory, conf.MaxSegmentSize.Int64())
+	seg, err := segment.NewFileSegment(mockLg, conf.Directory, conf.MaxSegmentSize.Int64())
 	if err != nil {
 		t.Fatalf("NewFileSegment failed: %v", err)
 	}
 
-	sm := fs.NewSegmentManager(mockLg, seg)
+	im := segment.NewIndexManagerMutex()
+	sm := segment.NewSegmentManager(mockLg, im, seg)
 
-	lw := NewLogWriterWithTarget(mockLg, sm)
+	lw := NewLogWriter(mockLg, sm)
 
 	rows := []*wal.Row{
 		wal.NewRow(1, query.SetMethodID, []string{"k1", "Hello1"}),

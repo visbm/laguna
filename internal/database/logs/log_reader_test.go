@@ -4,12 +4,25 @@ import (
 	"laguna/internal/database/wal"
 	"laguna/internal/mocks"
 	"laguna/internal/query"
+	"laguna/internal/segment"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+type mockSegmentManager struct {
+	files map[string][]byte
+}
+
+func (m *mockSegmentManager) ReadSegment(name string) ([]byte, error) {
+	return m.files[name], nil
+}
+
+func (m *mockSegmentManager) AddBatchIndex(entries map[uint64]segment.IndexEntry) {
+	// Mock implementation
+}
 
 func TestLogReader_Read(t *testing.T) {
 	dir := t.TempDir()
@@ -19,20 +32,22 @@ func TestLogReader_Read(t *testing.T) {
 
 	data1, _ := row1.Marshal()
 	data2, _ := row2.Marshal()
+	fileData := append(data1, data2...)
 
-	err := os.WriteFile(filepath.Join(dir, "wal1.log"), append(data1, data2...), 0644)
+	filePath := filepath.Join(dir, "wal1.log")
+	err := os.WriteFile(filePath, fileData, 0644)
 	if err != nil {
 		t.Fatalf("failed to write wal1: %v", err)
 	}
 
-	// write wrong data
-	err = os.WriteFile(filepath.Join(dir, "wal2.log"), []byte{0x00, 0x01, 0x02, 0x03}, 0644)
-	if err != nil {
-		t.Fatalf("failed to write wal2: %v", err)
+	mockSM := &mockSegmentManager{
+		files: map[string][]byte{
+			filePath: fileData,
+		},
 	}
 
-	reader := NewLogReader(&mocks.MockLogger{})
-	rows, err := reader.ReadFromFiles(dir)
+	reader := NewLogReader(mockSM, &mocks.MockLogger{})
+	rows, err := reader.ReadFrom(dir, "wal1.log", 0)
 	if err != nil {
 		t.Fatalf("readFrom failed: %v", err)
 	}

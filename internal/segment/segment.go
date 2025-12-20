@@ -1,8 +1,9 @@
-package fs
+package segment
 
 import (
 	"io"
 	"laguna/common/logger"
+	"laguna/utils/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -82,7 +83,7 @@ func (f *FileSegment) Fits(fileSize int64) bool {
 }
 
 func initFileSegment(path string) (*os.File, error) {
-	names, err := ReadDir(path)
+	names, err := fs.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +92,8 @@ func initFileSegment(path string) (*os.File, error) {
 		return newFile(path)
 	}
 
-	file, err := OpenFile(path + "/" + names[len(names)-1])
+	file, err := fs.OpenFile(path + "/" + names[len(names)-1])
+
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +105,7 @@ func newFile(path string) (*os.File, error) {
 	id := time.Now().UnixMicro()
 	name := path + "/" + strconv.FormatInt(id, 10) + ".bin"
 
-	file, err := OpenFile(name)
+	file, err := fs.OpenFile(name)
 	if err != nil {
 		return nil, err
 	}
@@ -119,9 +121,9 @@ func (f *FileSegment) CurrentOffset() int64 {
 }
 
 func (f *FileSegment) Read() ([]byte, error) {
-	b, err := io.ReadAll(f.file)
+	buf, err := io.ReadAll(f.file)
 	if err != nil {
 		return nil, err
 	}
-	return b, nil
+	return buf, nil
 }

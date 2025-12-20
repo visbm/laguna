@@ -34,4 +34,6 @@ replication: #cannot be replicate if wal is OFF
     max_message_size: 400KB
     idle_timeout: 10m
     sem_wait_timeout: 10s
-
+profiler:
+  enable: true
+  address: localhost:6060

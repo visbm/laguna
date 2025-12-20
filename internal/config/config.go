@@ -2,8 +2,8 @@ package config
 
 import (
 	"laguna/utils/data_type"
+	"laguna/utils/fs"
 	"log"
-	"os"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -15,6 +15,7 @@ type Config struct {
 	Transport   Transport   `yaml:"transport"`
 	WAL         WAL         `yaml:"wal"`
 	Replication Replication `yaml:"replication"`
+	Profiler    Profiler    `yaml:"profiler"`
 }
 
 type Engine struct {
@@ -63,8 +64,13 @@ type TCPServer struct {
 	SemWaitTimeout time.Duration      `yaml:"sem_wait_timeout"`
 }
 
+type Profiler struct {
+	Enable  bool   `yaml:"enable"`
+	Address string `yaml:"address"`
+}
+
 func NewConfig(path string) *Config {
-	data, err := os.ReadFile(path)
+	data, err := fs.ReadFile(path)
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}

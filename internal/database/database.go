@@ -7,7 +7,6 @@ import (
 	"laguna/common/logger"
 	"laguna/internal/query"
 	"laguna/utils/concurrency"
-	"laguna/utils/ctx_utils"
 	"laguna/utils/id_generator"
 	"time"
 )
@@ -34,7 +33,6 @@ type Database struct {
 	wal WAL
 
 	isMaster bool
-	curLsnID int64
 }
 
 func NewDatabase(st Storage, isMaster bool, wal WAL, log logger.Logger) (*Database, error) {
@@ -66,8 +64,6 @@ func (e *Database) Execute(ctx context.Context, q query.Query) (string, error) {
 		e.log.Error("non read operation on slave", logger.Error(errNonReadOpSlave))
 		return "", errNonReadOpSlave
 	}
-
-	ctx = ctx_utils.SetTxInContext(ctx, e.txGen.NextID())
 
 	ans, err := e.exec(ctx, q)
 	if err != nil {

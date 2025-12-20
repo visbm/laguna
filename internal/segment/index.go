@@ -1,22 +1,16 @@
-package fs
+package segment
 
 import (
 	"errors"
+	"sort"
 	"sync"
 	"sync/atomic"
 )
 
 var ErrNotFound = errors.New("index not found")
 
-// IndexEntry todo refill while restoring from wal .
-// ---------- SegmentIndex ----------
-//
-//	type Segment struct {
-//		Start uint64
-//		End   uint64
-//		File  string
-//	}
 type IndexEntry struct {
+	LSN      uint64
 	FileName string
 	Offset   int64
 }
@@ -92,11 +86,84 @@ func (im *IndexManagerCOW) AddBatch(entries map[uint64]IndexEntry) {
 	im.current.Store(newMap)
 }
 
-func (im *IndexManagerCOW) Get(lsn uint64) (IndexEntry, error) {
+func (im *IndexManagerCOW) GetIndex(lsn uint64) (IndexEntry, error) {
 	m := im.current.Load().(map[uint64]IndexEntry)
 	entry, ok := m[lsn]
 	if !ok {
 		return IndexEntry{}, ErrNotFound
 	}
 	return entry, nil
+}
+
+// IndexManagerArray based on sorted arr
+type IndexManagerArray struct {
+	mu      sync.RWMutex
+	entries []IndexEntry
+}
+
+func NewIndexManagerArray() *IndexManagerArray {
+	return &IndexManagerArray{
+		entries: make([]IndexEntry, 0, 1024),
+	}
+}
+
+func (im *IndexManagerArray) Add(lsn uint64, fileName string, offset int64) {
+	im.mu.Lock()
+	defer im.mu.Unlock()
+
+	n := len(im.entries)
+	if n == 0 || lsn > im.entries[n-1].LSN {
+		im.entries = append(im.entries, IndexEntry{LSN: lsn, FileName: fileName, Offset: offset})
+		return
+	}
+
+	idx := sort.Search(n, func(i int) bool {
+		return im.entries[i].LSN >= lsn
+	})
+
+	if idx < n && im.entries[idx].LSN == lsn {
+		im.entries[idx].FileName = fileName
+		im.entries[idx].Offset = offset
+	} else {
+
+		im.entries = append(im.entries, IndexEntry{})
+		copy(im.entries[idx+1:], im.entries[idx:])
+		im.entries[idx] = IndexEntry{LSN: lsn, FileName: fileName, Offset: offset}
+	}
+}
+
+func (im *IndexManagerArray) AddBatch(entries []IndexEntry) {
+
+	if len(entries) == 0 {
+		return
+	}
+
+	im.mu.Lock()
+	defer im.mu.Unlock()
+
+	im.entries = append(im.entries, entries...)
+}
+
+func (im *IndexManagerArray) GetIndex(lsn uint64) (IndexEntry, error) {
+	im.mu.RLock()
+	idx := binarySearchIndex(im.entries, lsn)
+	im.mu.RUnlock()
+
+	if idx < len(im.entries) && im.entries[idx].LSN == lsn {
+		return im.entries[idx], nil
+	}
+	return IndexEntry{}, ErrNotFound
+}
+
+func binarySearchIndex(entries []IndexEntry, lsn uint64) int {
+	lo, hi := 0, len(entries)
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		if entries[mid].LSN < lsn {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return lo
 }

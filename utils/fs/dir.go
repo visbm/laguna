@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,11 +10,19 @@ import (
 func ReadDir(path string) ([]string, error) {
 	dirs, err := os.ReadDir(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(path, 0o755); err != nil {
+				return nil, fmt.Errorf("failed to create directory: %w", err)
+			}
+			return nil, nil
+		}
 		return nil, err
 	}
+
 	if len(dirs) == 0 {
 		return nil, nil
 	}
+
 	names := make([]string, len(dirs))
 	for i, dir := range dirs {
 		names[i] = dir.Name()
@@ -36,17 +45,21 @@ func OpenFile(path string) (*os.File, error) {
 }
 
 func ReadFile(path string) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY, 0644)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
-	b, err := io.ReadAll(f)
+	defer func(f *os.File) {
+		_ = f.Close()
+	}(f)
+
+	buf, err := io.ReadAll(f)
 	if err != nil {
 		return nil, err
 	}
-	return b, nil
+
+	return buf, nil
 }
 
 func ReadDirsFrom(path string, fileFrom string) ([]string, error) {
@@ -58,8 +71,16 @@ func ReadDirsFrom(path string, fileFrom string) ([]string, error) {
 		return nil, nil
 	}
 
+	if fileFrom == "" {
+		return dirs, nil
+	}
+
 	idx := binarySearch(dirs, fileFrom)
-	if idx < 0 {
+	if idx >= len(dirs) {
+		return nil, nil
+	}
+
+	if idx == -1 {
 		return nil, nil
 	}
 

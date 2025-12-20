@@ -5,6 +5,8 @@ import (
 	"errors"
 	"laguna/common/logger"
 	"laguna/internal/database/storage/engine/inmemory"
+	"laguna/utils/ctx_utils"
+	"laguna/utils/id_generator"
 )
 
 type Engine interface {
@@ -14,15 +16,17 @@ type Engine interface {
 }
 
 type Storage struct {
-	log logger.Logger
-	en  Engine
+	txGen *id_generator.Generator
+	en    Engine
+	log   logger.Logger
 }
 
 func New(en Engine, log logger.Logger) *Storage {
 	log.Info("Initializing storage")
 	return &Storage{
-		log: log,
-		en:  en,
+		txGen: id_generator.NewIDGenerator(),
+		en:    en,
+		log:   log,
 	}
 }
 
@@ -31,7 +35,7 @@ func (s *Storage) Get(ctx context.Context, key string) (string, error) {
 		s.log.Error("context canceled")
 		return "", ctx.Err()
 	}
-
+	ctx = ctx_utils.SetTxInContext(ctx, s.txGen.NextID())
 	v, err := s.en.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, inmemory.ErrNotFound) {
@@ -48,7 +52,7 @@ func (s *Storage) Set(ctx context.Context, key, value string) error {
 		s.log.Error("context canceled")
 		return ctx.Err()
 	}
-
+	ctx = ctx_utils.SetTxInContext(ctx, s.txGen.NextID())
 	return s.en.Set(ctx, key, value)
 }
 
@@ -58,5 +62,6 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 		return ctx.Err()
 	}
 
+	ctx = ctx_utils.SetTxInContext(ctx, s.txGen.NextID())
 	return s.en.Del(ctx, key)
 }

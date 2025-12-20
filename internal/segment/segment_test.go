@@ -1,4 +1,4 @@
-package fs
+package segment
 
 import (
 	"laguna/internal/mocks"
@@ -32,27 +32,27 @@ func TestNewFileSegment(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				file.Close()
+				_ = file.Close()
 				return nil
 			},
 			wantErr:   false,
 			checkFile: true,
 		},
 		{
-			name:    "invalid directory",
+			name:    "create directory automatically",
 			maxSize: 1024,
 			setup: func(dir string) error {
 				return nil
 			},
-			wantErr:   true,
-			checkFile: false,
+			wantErr:   false,
+			checkFile: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if tt.name == "invalid directory" {
+			if tt.name == "create directory automatically" {
 				dir = filepath.Join(dir, "nonexistent", "subdir")
 			} else {
 				if err := tt.setup(dir); err != nil {
@@ -85,7 +85,7 @@ func TestNewFileSegment(t *testing.T) {
 					t.Error("NewFileSegment() file is nil")
 				}
 
-				seg.Close()
+				_ = seg.Close()
 			}
 		})
 	}
@@ -126,7 +126,9 @@ func TestFileSegment_Write(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
 			initialSize := seg.size
 			err = seg.Write(tt.data)
@@ -186,10 +188,12 @@ func TestFileSegment_Fits(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
 			if tt.name == "fits after write" {
-				seg.Write(make([]byte, 30))
+				_ = seg.Write(make([]byte, 30))
 			}
 
 			got := seg.Fits(tt.fileSize)
@@ -218,12 +222,14 @@ func TestFileSegment_Rotate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
 			oldName := seg.GetName()
 			oldSize := seg.size
 
-			seg.Write([]byte("test data"))
+			_ = seg.Write([]byte("test data"))
 			if seg.size == oldSize {
 				t.Error("Write() did not update size")
 			}
@@ -255,7 +261,9 @@ func TestFileSegment_GetName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSegment() error = %v", err)
 	}
-	defer seg.Close()
+	defer func(seg *FileSegment) {
+		_ = seg.Close()
+	}(seg)
 
 	name := seg.GetName()
 	if name == "" {
@@ -297,10 +305,12 @@ func TestFileSegment_CurrentOffset(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSegment() error = %v", err)
 			}
-			defer seg.Close()
+			defer func(seg *FileSegment) {
+				_ = seg.Close()
+			}(seg)
 
 			if tt.writeData != nil {
-				seg.Write(tt.writeData)
+				_ = seg.Write(tt.writeData)
 			}
 
 			offset := seg.CurrentOffset()

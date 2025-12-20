@@ -14,11 +14,11 @@ transport: #tcp cli
     idle_timeout: 5m
     sem_wait_timeout: 5s
 wal:
-  enable: false
+  enable: true
   flush_batch_size: 100
   flush_interval: "10ms"
   max_segment_size: "1MB"
-  directory: "./data/wal"
+  directory: ".slave_instance/data/wal"
 replication:
   enable: true
   is_master: false
