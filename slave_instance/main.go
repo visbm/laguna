@@ -1,0 +1,53 @@
+package main
+
+import (
+	"context"
+	"laguna/common/logger"
+	"laguna/internal/config"
+	"laguna/internal/database"
+	"laguna/internal/handlers"
+	"laguna/internal/query"
+	"laguna/internal/transport"
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+func main() {
+	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	conf := config.NewConfig("/Users/nick/goSelfEducation/laguna/slave_instance/config.yaml")
+
+	log := logger.New(conf.Logger)
+	log.Info("Starting application")
+
+	db, repl, wal, err := database.InitDB(conf, log)
+	if err != nil {
+		log.Fatal("Failed to create database", logger.Error(err))
+	}
+
+	if repl != nil {
+		repl.Start(ctx)
+	}
+	wal.Start(ctx)
+
+	qb := query.NewBuilder()
+	handler := handlers.NewUniversalHandler(qb, db, log)
+
+	ls := transport.NewListener(log, handler, conf.Transport)
+	ls.Listen(ctx)
+
+	<-ctx.Done()
+
+	ls.Close()
+	repl.Close()
+
+	err = log.Sync()
+	if err != nil {
+		log.Error("failed to sync logger", logger.Error(err))
+	}
+
+	log.Info("Shutting down...")
+}
